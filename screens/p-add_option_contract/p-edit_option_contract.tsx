@@ -1,20 +1,10 @@
-
-
 import React, { useState, useEffect } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Alert, } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, Alert } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { FontAwesome6 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import styles from './styles';
-
-interface StockInfo {
-  symbol: string;
-  name: string;
-  price: string;
-  change: string;
-  changeClass: 'price-up' | 'price-down';
-}
+import styles from './p-edit_option_contract.styles';
 
 interface OptionContractInfo {
   strikePrice: string;
@@ -68,16 +58,16 @@ interface StockData {
 
 const FOLLOW_LIST_KEY = 'followList';
 
-const AddOptionContractScreen = () => {
+const EditOptionContractScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   
-  const [stockInfo, setStockInfo] = useState<StockInfo>({
+  const [stockInfo, setStockInfo] = useState({
     symbol: 'AAPL',
     name: '苹果公司',
     price: '--',
     change: '--',
-    changeClass: 'price-up'
+    changeClass: 'price-up' as 'price-up' | 'price-down'
   });
 
   const [formData, setFormData] = useState<FormData>({
@@ -94,27 +84,50 @@ const AddOptionContractScreen = () => {
     contractType: ''
   });
 
-
-
   const [isLoading, setIsLoading] = useState(false);
   const [isSuccessModalVisible, setIsSuccessModalVisible] = useState(false);
+  const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
 
   useEffect(() => {
-    const stockId = (params.stockId as string) || 'AAPL';
-    // 设置默认股票信息
-    setStockInfo(prev => ({
-      ...prev,
-      symbol: stockId.toUpperCase(),
-    }));
+    const stockId = params.stockId as string;
+    const contractId = params.contractId as string;
     
-    // 设置默认到期日为当前日期加30天
-    const today = new Date();
-    today.setDate(today.getDate() + 30);
-    const defaultDate = today.toISOString().split('T')[0];
-    setFormData(prev => ({ ...prev, expirationDate: defaultDate }));
-  }, [params.stockId]);
+    if (stockId && contractId) {
+      loadContractData(stockId, contractId);
+    }
+  }, [params.stockId, params.contractId]);
 
+  const loadContractData = async (stockId: string, contractId: string) => {
+    try {
+      const existingData = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+      if (existingData) {
+        const stockList: StockData[] = JSON.parse(existingData);
+        const stock = stockList.find(s => s.id === stockId);
+        
+        if (stock) {
+          setStockInfo({
+            symbol: stock.symbol,
+            name: stock.name,
+            price: stock.currentPrice,
+            change: stock.change,
+            changeClass: stock.isUp ? 'price-up' : 'price-down'
+          });
 
+          const contract = stock.contracts.find(c => c.id === contractId);
+          if (contract) {
+            setFormData({
+              contractSymbol: contract.symbol,
+              strikePrice: contract.strikePrice,
+              expirationDate: contract.expirationDate,
+              contractType: contract.type === 'call' ? 'CALL' : 'PUT'
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error('加载合约数据失败:', error);
+    }
+  };
 
   const handleBackPress = () => {
     if (router.canGoBack()) {
@@ -173,68 +186,85 @@ const AddOptionContractScreen = () => {
       setIsLoading(true);
       
       try {
-        // 提取股票代码（从合约代码的第一个单词）
-        const stockSymbol = formData.contractSymbol.trim().split(/\s+/)[0].toUpperCase();
-        
+        const stockId = params.stockId as string;
+        const contractId = params.contractId as string;
+
         // 读取现有的关注列表
         const existingData = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
         const stockList: StockData[] = existingData ? JSON.parse(existingData) : [];
         
-        // 查找或创建对应的股票记录
-        let stockData = stockList.find(stock => stock.symbol === stockSymbol);
+        // 查找对应的股票记录
+        const stockData = stockList.find(stock => stock.id === stockId);
         
-        if (!stockData) {
-          // 如果股票不存在，创建新的股票记录
-          stockData = {
-            id: stockSymbol.toLowerCase(),
-            symbol: stockSymbol,
-            name: stockInfo.name || stockSymbol,
-            currentPrice: stockInfo.price,
-            change: stockInfo.change,
-            changePercent: '0%',
-            isUp: true,
-            contracts: [],
-            details: {
-              fiveDayAvg: '--',
-              fiveDayLow: '--',
-              fiveDayHigh: '--',
-              thirtyDayAvg: '--',
-              thirtyDayLow: '--',
-              thirtyDayHigh: '--',
-              fiftyTwoWeekAvg: '--',
-              fiftyTwoWeekLow: '--',
-              fairValue: '--',
-            },
-          };
-          stockList.push(stockData);
+        if (stockData) {
+          // 查找对应的期权合约
+          const contractIndex = stockData.contracts.findIndex(c => c.id === contractId);
+          
+          if (contractIndex !== -1) {
+            // 更新期权合约
+            stockData.contracts[contractIndex] = {
+              ...stockData.contracts[contractIndex],
+              symbol: formData.contractSymbol.trim(),
+              strikePrice: formData.strikePrice,
+              expirationDate: formData.expirationDate,
+              type: formData.contractType === 'CALL' ? 'call' : 'put',
+            };
+
+            // 保存更新后的列表到 AsyncStorage
+            await AsyncStorage.setItem(FOLLOW_LIST_KEY, JSON.stringify(stockList));
+            
+            // 模拟保存动画延迟
+            await new Promise(resolve => setTimeout(resolve, 1500));
+            setIsSuccessModalVisible(true);
+          }
         }
-        
-        // 创建新的期权合约
-        const newContract: OptionContract = {
-          id: `contract-${Date.now()}`,
-          symbol: formData.contractSymbol.trim(),
-          strikePrice: formData.strikePrice,
-          expirationDate: formData.expirationDate,
-          type: formData.contractType === 'CALL' ? 'call' : 'put',
-        };
-        
-        // 将新合约添加到股票的合约列表中
-        if (!stockData.contracts) {
-          stockData.contracts = [];
-        }
-        stockData.contracts.push(newContract);
-        
-        // 保存更新后的列表到 AsyncStorage
-        await AsyncStorage.setItem(FOLLOW_LIST_KEY, JSON.stringify(stockList));
-        
-        // 模拟保存动画延迟
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setIsSuccessModalVisible(true);
       } catch (error) {
         Alert.alert('保存失败', '请稍后重试');
       } finally {
         setIsLoading(false);
       }
+    }
+  };
+
+  const handleDeletePress = () => {
+    setIsDeleteModalVisible(true);
+  };
+
+  const handleDeleteConfirm = async () => {
+    setIsDeleteModalVisible(false);
+    setIsLoading(true);
+
+    try {
+      const stockId = params.stockId as string;
+      const contractId = params.contractId as string;
+
+      // 读取现有的关注列表
+      const existingData = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+      if (existingData) {
+        const stockList: StockData[] = JSON.parse(existingData);
+        
+        // 查找对应的股票记录
+        const stockData = stockList.find(stock => stock.id === stockId);
+        
+        if (stockData) {
+          // 删除期权合约
+          stockData.contracts = stockData.contracts.filter(c => c.id !== contractId);
+
+          // 保存更新后的列表到 AsyncStorage
+          await AsyncStorage.setItem(FOLLOW_LIST_KEY, JSON.stringify(stockList));
+          
+          // 模拟删除动画延迟
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          if (router.canGoBack()) {
+            router.back();
+          }
+        }
+      }
+    } catch (error) {
+      Alert.alert('删除失败', '请稍后重试');
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -287,14 +317,6 @@ const AddOptionContractScreen = () => {
     };
   };
 
-
-
-  const handleContractTypeSelect = (type: 'CALL' | 'PUT') => {
-    handleInputChange('contractType', type);
-  };
-
-
-
   // 处理期权代码输入完整后自动解析填充字段
   const handleCompleteOptionCode = (code: string) => {
     const parsed = parseOptionContractCode(code);
@@ -315,31 +337,19 @@ const AddOptionContractScreen = () => {
     }
   };
 
+  const handleContractTypeSelect = (type: 'CALL' | 'PUT') => {
+    handleInputChange('contractType', type);
+  };
+
   return (
-    <SafeAreaView style={styles.container}>
-      {/* 顶部导航栏 */}
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
-          <FontAwesome6 name="chevron-left" size={16} color="#1D1D1F" />
+    <SafeAreaView style={{ flex: 1, backgroundColor: '#F2F2F7' }} edges={['top', 'left', 'right']}>
+      {/* 头部 */}
+      <View style={styles.headerContainer}>
+        <TouchableOpacity onPress={handleBackPress} style={styles.backButton}>
+          <FontAwesome6 name="chevron-left" size={20} color="#007AFF" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>添加期权合约</Text>
-        <TouchableOpacity 
-          style={[styles.saveButton, isLoading && styles.saveButtonDisabled]} 
-          onPress={handleSavePress}
-          disabled={isLoading}
-        >
-          <Text style={styles.saveButtonText}>
-            {isLoading ? '保存中...' : '保存'}
-          </Text>
-          {isLoading && (
-            <FontAwesome6 
-              name="spinner" 
-              size={14} 
-              color="#FFFFFF" 
-              style={styles.loadingIcon} 
-            />
-          )}
-        </TouchableOpacity>
+        <Text style={styles.headerTitle}>修改期权合约</Text>
+        <View style={styles.headerPlaceholder} />
       </View>
 
       <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
@@ -377,7 +387,6 @@ const AddOptionContractScreen = () => {
               value={formData.contractSymbol}
               onChangeText={(value) => handleInputChange('contractSymbol', value)}
               onBlur={() => {
-                // 当焦点失去时，尝试自动解析完整的期权代码
                 const parsed = parseOptionContractCode(formData.contractSymbol);
                 if (parsed && formData.contractSymbol.trim().split(/\s+/).length >= 4) {
                   handleCompleteOptionCode(formData.contractSymbol);
@@ -478,7 +487,6 @@ const AddOptionContractScreen = () => {
                 <Text style={styles.tipItem}>  例如：AAPL CALL 20251215 180.00</Text>
                 <Text style={styles.tipItem} />
                 <Text style={styles.tipItem}>方法二：逐字段手动填写</Text>
-                <Text style={styles.tipItem}>  • 在代码字段搜索股票代码（如：AAPL）</Text>
                 <Text style={styles.tipItem}>  • 手动输入行权价、到期日、合约类型</Text>
                 <Text style={styles.tipItem} />
                 <Text style={styles.tipItem}>• 到期日期格式：YYYY-MM-DD（如：2025-12-15）</Text>
@@ -488,6 +496,25 @@ const AddOptionContractScreen = () => {
           </View>
         </View>
       </ScrollView>
+
+      {/* 按钮区域 */}
+      <View style={styles.buttonContainer}>
+        <TouchableOpacity 
+          style={[styles.saveButton, isLoading && styles.buttonDisabled]} 
+          onPress={handleSavePress}
+          disabled={isLoading}
+        >
+          <Text style={styles.saveButtonText}>{isLoading ? '保存中...' : '保存'}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.deleteButton, isLoading && styles.buttonDisabled]} 
+          onPress={handleDeletePress}
+          disabled={isLoading}
+        >
+          <FontAwesome6 name="trash" size={14} color="#FFFFFF" />
+          <Text style={styles.deleteButtonText}>{isLoading ? '删除中...' : '删除'}</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* 成功提示模态框 */}
       <Modal
@@ -501,11 +528,40 @@ const AddOptionContractScreen = () => {
             <View style={styles.successIcon}>
               <FontAwesome6 name="check" size={24} color="#FFFFFF" />
             </View>
-            <Text style={styles.modalTitle}>添加成功</Text>
-            <Text style={styles.modalMessage}>期权合约已成功添加到关注列表</Text>
+            <Text style={styles.modalTitle}>修改成功</Text>
+            <Text style={styles.modalMessage}>期权合约已成功更新</Text>
             <TouchableOpacity style={styles.modalButton} onPress={handleSuccessConfirm}>
               <Text style={styles.modalButtonText}>确定</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* 删除确认模态框 */}
+      <Modal
+        visible={isDeleteModalVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => setIsDeleteModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>删除期权合约</Text>
+            <Text style={styles.modalMessage}>确定要删除该期权合约吗？此操作无法撤销。</Text>
+            <View style={styles.modalButtonGroup}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]} 
+                onPress={() => setIsDeleteModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>取消</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.confirmDeleteButton]} 
+                onPress={handleDeleteConfirm}
+              >
+                <Text style={styles.confirmDeleteButtonText}>删除</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -513,5 +569,4 @@ const AddOptionContractScreen = () => {
   );
 };
 
-export default AddOptionContractScreen;
-
+export default EditOptionContractScreen;

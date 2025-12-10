@@ -1,9 +1,11 @@
 
 
 import React, { useState, useCallback } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, RefreshControl, Modal, Alert, } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, RefreshControl, Alert, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { FontAwesome6 } from '@expo/vector-icons';
 import styles from './styles';
 import ContractGroup from './components/ContractGroup';
@@ -36,87 +38,11 @@ interface ContractGroupData {
 
 const TradeBookkeepingScreen: React.FC = () => {
   const router = useRouter();
+  const TRADE_STORAGE_KEY = 'tradeBookkeepingData';
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [currentDeleteTradeId, setCurrentDeleteTradeId] = useState<string | null>(null);
-  const [contractGroups, setContractGroups] = useState<ContractGroupData[]>([
-    {
-      id: 'aapl-1',
-      symbol: 'AAPL',
-      expiration: '12/15/23',
-      strike: 180.00,
-      type: 'call',
-      averagePrice: 3.45,
-      quantity: 5,
-      currentValue: 17.25,
-      pnl: 2.50,
-      pnlPercent: 7.25,
-      tradeRecords: [
-        {
-          id: '1',
-          date: '2023-12-01',
-          type: 'buy',
-          premium: 3.45,
-          quantity: 5,
-          totalValue: 17.25,
-        },
-      ],
-    },
-    {
-      id: 'aapl-2',
-      symbol: 'AAPL',
-      expiration: '12/15/23',
-      strike: 170.00,
-      type: 'put',
-      averagePrice: 2.18,
-      quantity: 3,
-      currentValue: 6.54,
-      pnl: -0.89,
-      pnlPercent: -4.08,
-      tradeRecords: [
-        {
-          id: '2',
-          date: '2023-12-02',
-          type: 'sell',
-          premium: 2.18,
-          quantity: 3,
-          totalValue: 6.54,
-        },
-      ],
-    },
-    {
-      id: 'tsla-1',
-      symbol: 'TSLA',
-      expiration: '01/19/24',
-      strike: 250.00,
-      type: 'call',
-      averagePrice: 12.34,
-      quantity: 2,
-      currentValue: 24.68,
-      pnl: 5.67,
-      pnlPercent: 45.95,
-      tradeRecords: [
-        {
-          id: '3',
-          date: '2023-12-03',
-          type: 'buy',
-          premium: 12.34,
-          quantity: 2,
-          totalValue: 24.68,
-        },
-        {
-          id: '4',
-          date: '2023-12-05',
-          type: 'sell',
-          premium: 15.18,
-          quantity: 1,
-          totalValue: 15.18,
-          isClosing: true,
-          profit: 2.84,
-        },
-      ],
-    },
-  ]);
+  const [contractGroups, setContractGroups] = useState<ContractGroupData[]>([]);
 
   const handleBackPress = useCallback(() => {
     if (router.canGoBack()) {
@@ -143,12 +69,35 @@ const TradeBookkeepingScreen: React.FC = () => {
 
   const handleConfirmDelete = useCallback(() => {
     if (currentDeleteTradeId) {
-      setContractGroups(prevGroups =>
-        prevGroups.map(group => ({
-          ...group,
-          tradeRecords: group.tradeRecords.filter(record => record.id !== currentDeleteTradeId),
-        })).filter(group => group.tradeRecords.length > 0)
-      );
+      setContractGroups(prevGroups => {
+        const recomputeStats = (records: TradeRecord[]): Pick<ContractGroupData, 'averagePrice' | 'quantity' | 'currentValue' | 'pnl' | 'pnlPercent'> => {
+          const buyRecords = records.filter(r => r.type === 'buy');
+          const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
+          const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+          const netQty = records.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
+          const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
+          const currentValue = netQty * avg;
+          return { averagePrice: avg, quantity: netQty, currentValue, pnl: 0, pnlPercent: 0 };
+        };
+
+        const updated = prevGroups
+          .map(group => ({
+            ...group,
+            tradeRecords: group.tradeRecords.filter(record => record.id !== currentDeleteTradeId),
+          }))
+          .map(group => ({
+            ...group,
+            ...(group.tradeRecords.length > 0 ? recomputeStats(group.tradeRecords) : group),
+          }))
+          .filter(group => group.tradeRecords.length > 0);
+
+        AsyncStorage.setItem(TRADE_STORAGE_KEY, JSON.stringify(updated)).catch(e => {
+          console.error('删除后保存失败', e);
+        });
+
+        return updated;
+      });
+
       setIsDeleteModalVisible(false);
       setCurrentDeleteTradeId(null);
       Alert.alert('删除成功', '交易记录已删除');
@@ -162,12 +111,33 @@ const TradeBookkeepingScreen: React.FC = () => {
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    // 模拟刷新数据
-    setTimeout(() => {
+    try {
+      const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
+      const groups: ContractGroupData[] = stored ? JSON.parse(stored) : [];
+      setContractGroups(groups);
+    } catch (e) {
+      console.error('刷新交易簿记失败', e);
+      Alert.alert('刷新失败', '无法加载数据');
+    } finally {
       setIsRefreshing(false);
-      Alert.alert('刷新完成', '数据已更新');
-    }, 2000);
+    }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      const loadData = async () => {
+        try {
+          const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
+          const groups: ContractGroupData[] = stored ? JSON.parse(stored) : [];
+          setContractGroups(groups);
+        } catch (e) {
+          console.error('加载交易簿记失败', e);
+        }
+      };
+
+      loadData();
+    }, [])
+  );
 
   const renderEmptyState = () => (
     <View style={styles.emptyStateContainer}>

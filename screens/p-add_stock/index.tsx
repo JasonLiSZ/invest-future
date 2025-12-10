@@ -15,6 +15,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { FontAwesome6 } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import styles from './styles';
 
 interface StockItem {
@@ -29,6 +30,7 @@ interface ToastState {
 
 type SearchState = 'hint' | 'loading' | 'results' | 'no-results';
 const ALPHA_VANTAGE_KEY = process.env.EXPO_PUBLIC_ALPHA_VANTAGE_KEY || 'QR0YUW1Z2WTD20U4';
+const FOLLOW_LIST_KEY = 'followList';
 
 const AddStockScreen: React.FC = () => {
   const router = useRouter();
@@ -143,15 +145,41 @@ const AddStockScreen: React.FC = () => {
     setAddingStocks(prev => new Set(prev).add(symbol));
 
     try {
-      // 模拟API调用
-      await new Promise(resolve => setTimeout(resolve, 1500));
-      
+      const stored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+      const parsed: any[] = stored ? JSON.parse(stored) : [];
+
+      if (parsed.some(item => item.symbol === symbol)) {
+        showToast('已在关注列表');
+        return;
+      }
+
+      const newStock = {
+        id: symbol.toLowerCase(),
+        symbol,
+        name,
+        currentPrice: '--',
+        change: '0.00',
+        changePercent: '0.00%',
+        isUp: true,
+        contracts: [],
+        details: {
+          fiveDayAvg: '--',
+          fiveDayLow: '--',
+          fiveDayHigh: '--',
+          thirtyDayAvg: '--',
+          thirtyDayLow: '--',
+          thirtyDayHigh: '--',
+          fiftyTwoWeekAvg: '--',
+          fiftyTwoWeekLow: '--',
+          fairValue: '--',
+        },
+      };
+
+      const nextList = [...parsed, newStock];
+      await AsyncStorage.setItem(FOLLOW_LIST_KEY, JSON.stringify(nextList));
+
       showToast('添加成功');
-      
-      // 延迟返回上一页
-      setTimeout(() => {
-        handleBackPress();
-      }, 1000);
+      setTimeout(() => handleBackPress(), 800);
     } catch (error) {
       showToast('添加失败，请重试');
     } finally {

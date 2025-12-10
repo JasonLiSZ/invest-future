@@ -10,7 +10,6 @@ interface OptionContract {
   symbol: string;
   strikePrice: string;
   expirationDate: string;
-  premium: string;
   type: 'call' | 'put';
 }
 
@@ -43,6 +42,7 @@ interface StockCardProps {
   onAddContract: (stockId: string) => void;
   onDeleteContract: (contractId: string) => void;
   onBookkeepContract: (contractId: string) => void;
+  onEditContract: (contractId: string) => void;
   onRefreshStock: (stockId: string) => void;
 }
 
@@ -52,6 +52,7 @@ const StockCard: React.FC<StockCardProps> = ({
   onAddContract,
   onDeleteContract,
   onBookkeepContract,
+  onEditContract,
   onRefreshStock,
 }) => {
   const [isExpanded, setIsExpanded] = useState(false);
@@ -152,13 +153,18 @@ const StockCard: React.FC<StockCardProps> = ({
                 <View style={styles.contractDetails}>
                   <Text style={styles.contractDetailText}>行权价: {contract.strikePrice}</Text>
                   <Text style={styles.contractDetailText}>到期日: {contract.expirationDate}</Text>
-                  <Text style={styles.contractDetailText}>期权费: {contract.premium}</Text>
                 </View>
               </View>
               <View style={styles.contractActions}>
                 <TouchableOpacity
                   style={styles.bookkeepButton}
                   onPress={() => onBookkeepContract(contract.id)}
+                >
+                  <FontAwesome6 name="book" size={12} color="#FFFFFF" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.editContractButton}
+                  onPress={() => onEditContract(contract.id)}
                 >
                   <FontAwesome5 name="edit" size={12} color="#FFFFFF" />
                 </TouchableOpacity>

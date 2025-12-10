@@ -17,7 +17,8 @@ export default StyleSheet.create({
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
+    position: 'relative',
   },
   backButton: {
     width: 32,
@@ -31,6 +32,17 @@ export default StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: '#1D1D1F',
+    textAlign: 'center',
+  },
+  headerTitleWrapper: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerRight: {
+    position: 'absolute',
+    right: 16,
+    top: 12,
   },
   saveButton: {
     paddingHorizontal: 16,

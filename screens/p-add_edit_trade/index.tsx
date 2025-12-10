@@ -5,6 +5,7 @@ import { View, Text, TextInput, TouchableOpacity, ScrollView, Modal, FlatList, A
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { FontAwesome6 } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import styles from './styles';
 
 interface OptionContract {
@@ -17,6 +18,25 @@ interface OptionContract {
   premium: number;
 }
 
+interface StoredOptionContract {
+  id: string;
+  symbol: string;
+  strikePrice: string;
+  expirationDate: string;
+  type: 'call' | 'put';
+}
+
+interface StockData {
+  id: string;
+  symbol: string;
+  name: string;
+  currentPrice: string;
+  change: string;
+  changePercent: string;
+  isUp: boolean;
+  contracts: StoredOptionContract[];
+}
+
 interface TradeData {
   contract_id: string;
   contract_symbol: string;
@@ -27,6 +47,30 @@ interface TradeData {
   is_close_position: boolean;
 }
 
+interface StoredTradeRecord {
+  id: string;
+  date: string;
+  type: 'buy' | 'sell';
+  premium: number;
+  quantity: number;
+  totalValue: number;
+  isClosing?: boolean;
+}
+
+interface StoredContractGroup {
+  id: string;
+  symbol: string;
+  expiration: string;
+  strike: number;
+  type: 'call' | 'put';
+  averagePrice: number;
+  quantity: number;
+  currentValue: number;
+  pnl: number;
+  pnlPercent: number;
+  tradeRecords: StoredTradeRecord[];
+}
+
 const AddEditTradeScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
@@ -34,7 +78,7 @@ const AddEditTradeScreen = () => {
   // 判断模式
   const isEditMode = params.trade_id !== undefined;
   const isClosePosition = params.close_position === 'true';
-  const contractId = params.contract_id as string;
+  const contractId = (params.contract_id as string) || (params.contractId as string);
 
   // 状态管理
   const [selectedContract, setSelectedContract] = useState<OptionContract | null>(null);
@@ -48,6 +92,28 @@ const AddEditTradeScreen = () => {
   const [showSuccessToast, setShowSuccessToast] = useState(false);
   const [showErrorToast, setShowErrorToast] = useState(false);
   const [errorMessage, setErrorMessage] = useState('保存失败，请重试');
+
+  const FOLLOW_LIST_KEY = 'followList';
+  const TRADE_STORAGE_KEY = 'tradeBookkeepingData';
+
+  const generateTradeId = () => `trade-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+
+  const computeGroupStats = (records: StoredTradeRecord[]) => {
+    const buyRecords = records.filter(r => r.type === 'buy');
+    const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
+    const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+    const netQuantity = records.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
+    const averagePrice = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
+    const currentValue = netQuantity * averagePrice;
+
+    return {
+      averagePrice,
+      quantity: netQuantity,
+      currentValue,
+      pnl: 0,
+      pnlPercent: 0,
+    };
+  };
 
   // 模拟数据
   const mockContracts: OptionContract[] = [
@@ -115,6 +181,30 @@ const AddEditTradeScreen = () => {
     const today = new Date().toISOString().split('T')[0];
     setTradeDate(today);
 
+    const loadContractFromStorage = async (targetId: string) => {
+      try {
+        const stored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+        if (!stored) return;
+        const stockList: StockData[] = JSON.parse(stored);
+        const stock = stockList.find(s => s.contracts?.some(c => c.id === targetId));
+        const contract = stock?.contracts.find(c => c.id === targetId);
+        if (stock && contract) {
+          const mapped: OptionContract = {
+            id: contract.id,
+            symbol: contract.symbol,
+            stock: stock.symbol,
+            type: contract.type === 'call' ? 'CALL' : 'PUT',
+            strike: parseFloat(contract.strikePrice) || 0,
+            expiration: contract.expirationDate,
+            premium: 0,
+          };
+          setSelectedContract(mapped);
+        }
+      } catch (e) {
+        console.error('加载期权合约失败', e);
+      }
+    };
+
     if (isEditMode) {
       const tradeId = params.trade_id as string;
       const tradeData = mockTrades[tradeId];
@@ -147,6 +237,10 @@ const AddEditTradeScreen = () => {
       if (contract) {
         setSelectedContract(contract);
         setPremium(contract.premium.toString());
+      } else {
+        loadContractFromStorage(contractId).then(() => {
+          // premium由交易输入，保持为空
+        });
       }
     }
   }, [params]);
@@ -233,29 +327,67 @@ const AddEditTradeScreen = () => {
     setIsLoading(true);
 
     try {
-      // 模拟保存过程
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      
+      const premiumValue = parseFloat(premium);
+      const quantityValue = parseInt(quantity);
+
       const tradeData: TradeData = {
         contract_id: selectedContract!.id,
         contract_symbol: selectedContract!.symbol,
         direction: tradeDirection,
         date: tradeDate,
-        premium: parseFloat(premium),
-        quantity: parseInt(quantity),
-        is_close_position: isClosePosition
+        premium: premiumValue,
+        quantity: quantityValue,
+        is_close_position: isClosePosition,
       };
 
+      const newRecord: StoredTradeRecord = {
+        id: generateTradeId(),
+        date: tradeDate,
+        type: tradeDirection === 'BUY' ? 'buy' : 'sell',
+        premium: premiumValue,
+        quantity: quantityValue,
+        totalValue: parseFloat((premiumValue * quantityValue).toFixed(2)),
+        isClosing: isClosePosition,
+      };
+
+      const storedGroups = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
+      const groups: StoredContractGroup[] = storedGroups ? JSON.parse(storedGroups) : [];
+      const groupIndex = groups.findIndex(g => g.id === selectedContract!.id);
+
+      if (groupIndex >= 0) {
+        const updatedRecords = [newRecord, ...groups[groupIndex].tradeRecords];
+        const stats = computeGroupStats(updatedRecords);
+        groups[groupIndex] = {
+          ...groups[groupIndex],
+          ...stats,
+          tradeRecords: updatedRecords,
+        };
+      } else {
+        const records = [newRecord];
+        const stats = computeGroupStats(records);
+        groups.unshift({
+          id: selectedContract!.id,
+          symbol: selectedContract!.symbol,
+          expiration: selectedContract!.expiration,
+          strike: selectedContract!.strike,
+          type: selectedContract!.type === 'CALL' ? 'call' : 'put',
+          ...stats,
+          tradeRecords: records,
+        });
+      }
+
+      await AsyncStorage.setItem(TRADE_STORAGE_KEY, JSON.stringify(groups));
+
       console.log('保存交易数据:', tradeData);
-      
+
       showSuccess();
-      
-      // 延迟跳转
+
       setTimeout(() => {
         router.push('/p-trade_bookkeeping');
-      }, 1500);
-      
+      }, 500);
+
     } catch (error) {
+      console.error('保存交易失败', error);
       showError('保存失败，请重试');
     } finally {
       setIsLoading(false);
@@ -321,16 +453,20 @@ const AddEditTradeScreen = () => {
         >
           <FontAwesome6 name="chevron-left" size={16} color="#1D1D1F" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>
-          {isEditMode ? '编辑交易' : isClosePosition ? '平仓交易' : '新增交易'}
-        </Text>
-        <TouchableOpacity
-          style={styles.saveButton}
-          onPress={handleSaveTrade}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.saveButtonText}>保存</Text>
-        </TouchableOpacity>
+        <View style={styles.headerTitleWrapper}>
+          <Text style={styles.headerTitle}>
+            {isEditMode ? '编辑交易' : isClosePosition ? '平仓交易' : '新增交易'}
+          </Text>
+        </View>
+        <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={styles.saveButton}
+            onPress={handleSaveTrade}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.saveButtonText}>保存</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* 主要内容区域 */}

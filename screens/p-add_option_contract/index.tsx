@@ -27,6 +27,7 @@ interface FormData {
   strikePrice: string;
   expirationDate: string;
   contractType: 'CALL' | 'PUT' | '';
+  premium: string;
 }
 
 interface FormErrors {
@@ -34,6 +35,7 @@ interface FormErrors {
   strikePrice: string;
   expirationDate: string;
   contractType: string;
+  premium: string;
 }
 
 interface OptionContract {
@@ -42,6 +44,7 @@ interface OptionContract {
   strikePrice: string;
   expirationDate: string;
   type: 'call' | 'put';
+  premium?: string;
 }
 
 interface StockData {
@@ -84,14 +87,16 @@ const AddOptionContractScreen = () => {
     contractSymbol: '',
     strikePrice: '',
     expirationDate: '',
-    contractType: ''
+    contractType: '',
+    premium: ''
   });
 
   const [formErrors, setFormErrors] = useState<FormErrors>({
     contractSymbol: '',
     strikePrice: '',
     expirationDate: '',
-    contractType: ''
+    contractType: '',
+    premium: ''
   });
 
 
@@ -127,7 +132,8 @@ const AddOptionContractScreen = () => {
       contractSymbol: '',
       strikePrice: '',
       expirationDate: '',
-      contractType: ''
+      contractType: '',
+      premium: ''
     };
 
     let isValid = true;
@@ -161,6 +167,14 @@ const AddOptionContractScreen = () => {
 
     if (!formData.contractType) {
       errors.contractType = '请选择合约类型';
+      isValid = false;
+    }
+
+    if (!formData.premium) {
+      errors.premium = '请输入期权费';
+      isValid = false;
+    } else if (parseFloat(formData.premium) < 0) {
+      errors.premium = '期权费不能为负数';
       isValid = false;
     }
 
@@ -216,6 +230,7 @@ const AddOptionContractScreen = () => {
           strikePrice: formData.strikePrice,
           expirationDate: formData.expirationDate,
           type: formData.contractType === 'CALL' ? 'call' : 'put',
+          premium: formData.premium,
         };
         
         // 将新合约添加到股票的合约列表中
@@ -412,6 +427,25 @@ const AddOptionContractScreen = () => {
             </View>
             {formErrors.strikePrice ? (
               <Text style={styles.errorMessage}>{formErrors.strikePrice}</Text>
+            ) : null}
+          </View>
+
+          {/* 期权费 */}
+          <View style={styles.formGroup}>
+            <Text style={styles.formLabel}>期权费 *</Text>
+            <View style={styles.inputWithSymbol}>
+              <Text style={styles.currencySymbol}>$</Text>
+              <TextInput
+                style={[styles.textInputWithSymbol, formErrors.premium && styles.textInputError]}
+                placeholder="3.45"
+                placeholderTextColor="#86868B"
+                value={formData.premium}
+                onChangeText={(value) => handleInputChange('premium', value)}
+                keyboardType="numeric"
+              />
+            </View>
+            {formErrors.premium ? (
+              <Text style={styles.errorMessage}>{formErrors.premium}</Text>
             ) : null}
           </View>
 

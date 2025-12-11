@@ -24,6 +24,7 @@ interface StoredOptionContract {
   strikePrice: string;
   expirationDate: string;
   type: 'call' | 'put';
+  premium?: string;
 }
 
 interface StockData {
@@ -75,9 +76,11 @@ const AddEditTradeScreen = () => {
   const router = useRouter();
   const params = useLocalSearchParams();
   
-  // 判断模式
-  const isEditMode = params.trade_id !== undefined;
-  const isClosePosition = params.close_position === 'true';
+  // 判断模式 - 支持多种参数名称
+  const tradeId = (params.tradeId as string) || (params.trade_id as string);
+  const mode = (params.mode as string) || '';
+  const isEditMode = mode === 'edit';
+  const isClosePosition = mode === 'close';
   const contractId = (params.contract_id as string) || (params.contractId as string);
 
   // 状态管理
@@ -90,6 +93,7 @@ const AddEditTradeScreen = () => {
   const [contractSearchQuery, setContractSearchQuery] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [showSuccessToast, setShowSuccessToast] = useState(false);
+  const [realContracts, setRealContracts] = useState<OptionContract[]>([]);
   const [showErrorToast, setShowErrorToast] = useState(false);
   const [errorMessage, setErrorMessage] = useState('保存失败，请重试');
 
@@ -98,13 +102,17 @@ const AddEditTradeScreen = () => {
 
   const generateTradeId = () => `trade-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
 
-  const computeGroupStats = (records: StoredTradeRecord[]) => {
+  const computeGroupStats = (records: StoredTradeRecord[], currentContractPremium?: number) => {
     const buyRecords = records.filter(r => r.type === 'buy');
     const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
     const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
     const netQuantity = records.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
     const averagePrice = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
-    const currentValue = netQuantity * averagePrice;
+    
+    // 当前价值 = 净数量 × 当前合约期权费（如果提供）或平均价格
+    const currentValue = currentContractPremium !== undefined 
+      ? netQuantity * currentContractPremium 
+      : netQuantity * averagePrice;
 
     return {
       averagePrice,
@@ -115,45 +123,7 @@ const AddEditTradeScreen = () => {
     };
   };
 
-  // 模拟数据
-  const mockContracts: OptionContract[] = [
-    {
-      id: 'contract-1',
-      symbol: 'AAPL 12/15/23 180.00 CALL',
-      stock: 'AAPL',
-      type: 'CALL',
-      strike: 180.00,
-      expiration: '2023-12-15',
-      premium: 3.45
-    },
-    {
-      id: 'contract-2',
-      symbol: 'AAPL 12/15/23 170.00 PUT',
-      stock: 'AAPL',
-      type: 'PUT',
-      strike: 170.00,
-      expiration: '2023-12-15',
-      premium: 2.18
-    },
-    {
-      id: 'contract-3',
-      symbol: 'TSLA 01/19/24 250.00 CALL',
-      stock: 'TSLA',
-      type: 'CALL',
-      strike: 250.00,
-      expiration: '2024-01-19',
-      premium: 12.34
-    },
-    {
-      id: 'contract-4',
-      symbol: 'MSFT 02/16/24 375.00 PUT',
-      stock: 'MSFT',
-      type: 'PUT',
-      strike: 375.00,
-      expiration: '2024-02-16',
-      premium: 8.92
-    }
-  ];
+  // 模拟数据已移除，所有合约数据来自关注列表
 
   const mockTrades: Record<string, TradeData> = {
     'trade-1': {
@@ -178,6 +148,42 @@ const AddEditTradeScreen = () => {
 
   // 初始化页面
   useEffect(() => {
+    // 加载真实合约列表
+    const loadRealContracts = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+        if (stored) {
+          const stockList: StockData[] = JSON.parse(stored);
+          const contracts: OptionContract[] = [];
+          
+          stockList.forEach(stock => {
+            if (stock.contracts && stock.contracts.length > 0) {
+              stock.contracts.forEach(contract => {
+                contracts.push({
+                  id: contract.id,
+                  symbol: contract.symbol,
+                  stock: stock.symbol,
+                  type: contract.type === 'call' ? 'CALL' : 'PUT',
+                  strike: parseFloat(contract.strikePrice) || 0,
+                  expiration: contract.expirationDate,
+                  premium: contract.premium ? parseFloat(contract.premium) : 0,
+                });
+              });
+            }
+          });
+          
+          setRealContracts(contracts);
+        }
+      } catch (e) {
+        console.error('加载真实合约列表失败', e);
+      }
+    };
+    
+    loadRealContracts();
+  }, []);
+
+  // 初始化页面
+  useEffect(() => {
     const loadContractFromStorage = async (targetId: string) => {
       try {
         const stored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
@@ -193,7 +199,7 @@ const AddEditTradeScreen = () => {
             type: contract.type === 'call' ? 'CALL' : 'PUT',
             strike: parseFloat(contract.strikePrice) || 0,
             expiration: contract.expirationDate,
-            premium: 0,
+            premium: contract.premium ? parseFloat(contract.premium) : 0,
           };
           setSelectedContract(mapped);
         }
@@ -202,34 +208,70 @@ const AddEditTradeScreen = () => {
       }
     };
 
-    if (isEditMode) {
-      const tradeId = params.trade_id as string;
-      const tradeData = mockTrades[tradeId];
-      
-      if (tradeData) {
-        const contract = mockContracts.find(c => c.id === tradeData.contract_id);
-        if (contract) {
-          setSelectedContract(contract);
+    if (isEditMode || isClosePosition) {
+      // 从 AsyncStorage 加载交易数据
+      const loadTradeData = async () => {
+        try {
+          const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
+          if (!stored) return;
+          
+          const contractGroups: StoredContractGroup[] = JSON.parse(stored);
+          
+          // 在所有合约组中搜索交易记录
+          for (const group of contractGroups) {
+            const trade = group.tradeRecords.find((r: StoredTradeRecord) => r.id === tradeId);
+            if (trade) {
+              // 从FOLLOW_LIST中获取实际的合约信息（包括最新的期权费）
+              let contractPremium = trade.premium;
+              try {
+                const followList = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+                if (followList) {
+                  const stocks: StockData[] = JSON.parse(followList);
+                  const stock = stocks.find(s => s.contracts?.some(c => c.id === group.id));
+                  const contract = stock?.contracts.find(c => c.id === group.id);
+                  if (contract && contract.premium) {
+                    contractPremium = parseFloat(contract.premium);
+                  }
+                }
+              } catch (e) {
+                console.error('从FOLLOW_LIST加载合约期权费失败', e);
+              }
+              
+              // 构建合约信息
+              const contract: OptionContract = {
+                id: group.id,
+                symbol: `${group.symbol} ${group.expiration} ${group.strike} ${group.type.toUpperCase()}`,
+                stock: group.symbol,
+                type: group.type === 'call' ? 'CALL' : 'PUT',
+                strike: group.strike,
+                expiration: group.expiration,
+                premium: contractPremium,
+              };
+              
+              setSelectedContract(contract);
+              setTradeDate(trade.date);
+              setQuantity(trade.quantity.toString());
+              
+              if (isClosePosition) {
+                // 平仓时反向操作
+                setTradeDirection(trade.type === 'buy' ? 'SELL' : 'BUY');
+              } else {
+                // 编辑时保持原方向
+                setTradeDirection(trade.type === 'buy' ? 'BUY' : 'SELL');
+              }
+              break;
+            }
+          }
+        } catch (e) {
+          console.error('加载交易数据失败', e);
         }
-        setTradeDirection(tradeData.direction);
-        setPremium(tradeData.premium.toString());
-        setQuantity(tradeData.quantity.toString());
-      }
-    } else if (isClosePosition) {
-      const tradeId = params.trade_id as string;
-      const tradeData = mockTrades[tradeId];
+      };
       
-      if (tradeData) {
-        const contract = mockContracts.find(c => c.id === tradeData.contract_id);
-        if (contract) {
-          setSelectedContract(contract);
-        }
-        const closeDirection = tradeData.direction === 'BUY' ? 'SELL' : 'BUY';
-        setTradeDirection(closeDirection);
-        setQuantity(tradeData.quantity.toString());
-      }
+      loadTradeData();
     } else if (contractId) {
-      const contract = mockContracts.find(c => c.id === contractId);
+      // 从真实合约中查找
+      const contract = realContracts.find(c => c.id === contractId);
+      
       if (contract) {
         setSelectedContract(contract);
         setPremium(contract.premium.toString());
@@ -239,17 +281,19 @@ const AddEditTradeScreen = () => {
         });
       }
     }
-  }, [isEditMode, isClosePosition, contractId, params.trade_id]);
+  }, [isEditMode, isClosePosition, contractId, tradeId]);
 
-  // 过滤合约
-  const filteredContracts = mockContracts.filter(contract =>
+  // 过滤合约 - 只显示关注列表中的合约
+  const filteredContracts = realContracts.filter(contract =>
     contract.symbol.toLowerCase().includes(contractSearchQuery.toLowerCase()) ||
     contract.stock.toLowerCase().includes(contractSearchQuery.toLowerCase())
   );
 
   // 计算总金额
   const calculateTotal = () => {
-    const premiumValue = parseFloat(premium) || 0;
+    // 使用合约中的期权费，而不是用户输入的premium
+    const contractPremium = selectedContract?.premium || 0;
+    const premiumValue = typeof contractPremium === 'string' ? parseFloat(contractPremium) : contractPremium;
     const quantityValue = parseInt(quantity) || 0;
     return (premiumValue * quantityValue).toFixed(2);
   };
@@ -299,9 +343,9 @@ const AddEditTradeScreen = () => {
       return false;
     }
     
-    const premiumValue = parseFloat(premium);
-    if (!premium || premiumValue <= 0) {
-      showError('请输入有效的期权费');
+    const contractPremium = selectedContract?.premium;
+    if (!contractPremium) {
+      showError('选中的合约没有期权费信息');
       return false;
     }
     
@@ -323,7 +367,9 @@ const AddEditTradeScreen = () => {
     setIsLoading(true);
 
     try {
-      const premiumValue = parseFloat(premium);
+      // 使用合约中的期权费，而不是用户输入的值
+      const contractPremium = selectedContract?.premium || 0;
+      const premiumValue = typeof contractPremium === 'number' ? contractPremium : parseFloat(contractPremium);
       const quantityValue = parseInt(quantity);
 
       const tradeData: TradeData = {
@@ -336,40 +382,78 @@ const AddEditTradeScreen = () => {
         is_close_position: isClosePosition,
       };
 
-      const newRecord: StoredTradeRecord = {
-        id: generateTradeId(),
-        date: tradeDate,
-        type: tradeDirection === 'BUY' ? 'buy' : 'sell',
-        premium: premiumValue,
-        quantity: quantityValue,
-        totalValue: parseFloat((premiumValue * quantityValue).toFixed(2)),
-        isClosing: isClosePosition,
-      };
-
       const storedGroups = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
       const groups: StoredContractGroup[] = storedGroups ? JSON.parse(storedGroups) : [];
-      const groupIndex = groups.findIndex(g => g.id === selectedContract!.id);
 
-      if (groupIndex >= 0) {
-        const updatedRecords = [newRecord, ...groups[groupIndex].tradeRecords];
-        const stats = computeGroupStats(updatedRecords);
-        groups[groupIndex] = {
-          ...groups[groupIndex],
-          ...stats,
-          tradeRecords: updatedRecords,
-        };
+      if (isEditMode && tradeId) {
+        // 编辑模式：更新现有交易记录
+        let foundAndUpdated = false;
+        for (let i = 0; i < groups.length; i++) {
+          const recordIndex = groups[i].tradeRecords.findIndex(r => r.id === tradeId);
+          if (recordIndex >= 0) {
+            // 更新该交易记录
+            groups[i].tradeRecords[recordIndex] = {
+              ...groups[i].tradeRecords[recordIndex],
+              date: tradeDate,
+              type: tradeDirection === 'BUY' ? 'buy' : 'sell',
+              premium: premiumValue,
+              quantity: quantityValue,
+              totalValue: parseFloat((premiumValue * quantityValue).toFixed(2)),
+              isClosing: isClosePosition,
+            };
+
+            // 重新计算该合约组的统计数据，使用当前的合约期权费
+            const stats = computeGroupStats(groups[i].tradeRecords, premiumValue);
+            groups[i] = {
+              ...groups[i],
+              ...stats,
+            };
+
+            foundAndUpdated = true;
+            break;
+          }
+        }
+
+        if (!foundAndUpdated) {
+          showError('找不到要编辑的交易记录');
+          setIsLoading(false);
+          return;
+        }
       } else {
-        const records = [newRecord];
-        const stats = computeGroupStats(records);
-        groups.unshift({
-          id: selectedContract!.id,
-          symbol: selectedContract!.symbol,
-          expiration: selectedContract!.expiration,
-          strike: selectedContract!.strike,
-          type: selectedContract!.type === 'CALL' ? 'call' : 'put',
-          ...stats,
-          tradeRecords: records,
-        });
+        // 新增模式：创建新交易记录
+        const newRecord: StoredTradeRecord = {
+          id: generateTradeId(),
+          date: tradeDate,
+          type: tradeDirection === 'BUY' ? 'buy' : 'sell',
+          premium: premiumValue,
+          quantity: quantityValue,
+          totalValue: parseFloat((premiumValue * quantityValue).toFixed(2)),
+          isClosing: isClosePosition,
+        };
+
+        const groupIndex = groups.findIndex(g => g.id === selectedContract!.id);
+
+        if (groupIndex >= 0) {
+          const updatedRecords = [newRecord, ...groups[groupIndex].tradeRecords];
+          const stats = computeGroupStats(updatedRecords, premiumValue);
+          groups[groupIndex] = {
+            ...groups[groupIndex],
+            ...stats,
+            tradeRecords: updatedRecords,
+          };
+        } else {
+          const records = [newRecord];
+          const stats = computeGroupStats(records, premiumValue);
+          groups.unshift({
+            id: selectedContract!.id,
+            symbol: selectedContract!.symbol,
+            expiration: selectedContract!.expiration,
+            strike: selectedContract!.strike,
+            type: selectedContract!.type === 'CALL' ? 'call' : 'put',
+            ...stats,
+            tradeRecords: records,
+          });
+        }
       }
 
       await AsyncStorage.setItem(TRADE_STORAGE_KEY, JSON.stringify(groups));
@@ -475,12 +559,19 @@ const AddEditTradeScreen = () => {
             onPress={() => setIsContractModalVisible(true)}
             activeOpacity={0.7}
           >
-            <Text style={[
-              styles.contractSelectorText,
-              !selectedContract && styles.placeholderText
-            ]}>
-              {selectedContract ? selectedContract.symbol : '选择或输入期权合约'}
-            </Text>
+            <View>
+              <Text style={[
+                styles.contractSelectorText,
+                !selectedContract && styles.placeholderText
+              ]}>
+                {selectedContract ? selectedContract.symbol : '选择或输入期权合约'}
+              </Text>
+              {selectedContract && selectedContract.premium !== undefined && (
+                <Text style={styles.contractPremiumText}>
+                  期权费: ${parseFloat(String(selectedContract.premium)).toFixed(2)}
+                </Text>
+              )}
+            </View>
             <FontAwesome6 name="chevron-down" size={14} color="#86868B" />
           </TouchableOpacity>
         </View>
@@ -556,20 +647,16 @@ const AddEditTradeScreen = () => {
           </View>
         </View>
 
-        {/* 期权费 */}
+        {/* 期权费 - 从合约自动获取 */}
         <View style={styles.formSection}>
-          <Text style={styles.formLabel}>期权费 *</Text>
+          <Text style={styles.formLabel}>期权费</Text>
           <View style={styles.premiumInputWrapper}>
             <Text style={styles.currencySymbol}>$</Text>
-            <TextInput
-              style={styles.premiumInput}
-              value={premium}
-              onChangeText={setPremium}
-              placeholder="0.00"
-              placeholderTextColor="#86868B"
-              keyboardType="numeric"
-            />
+            <Text style={styles.premiumDisplay}>
+              {selectedContract?.premium ? parseFloat(String(selectedContract.premium)).toFixed(2) : '--'}
+            </Text>
           </View>
+          <Text style={styles.hintText}>期权费从合约配置中自动获取</Text>
         </View>
 
         {/* 数量 */}
@@ -620,7 +707,7 @@ const AddEditTradeScreen = () => {
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>期权费:</Text>
               <Text style={styles.summaryValue}>
-                ${parseFloat(premium || '0').toFixed(2)}
+                ${selectedContract?.premium ? parseFloat(String(selectedContract.premium)).toFixed(2) : '0.00'}
               </Text>
             </View>
             <View style={styles.summaryRow}>

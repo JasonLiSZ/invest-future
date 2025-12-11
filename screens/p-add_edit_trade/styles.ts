@@ -91,6 +91,11 @@ export default StyleSheet.create({
     color: '#1D1D1F',
     flex: 1,
   },
+  contractPremiumText: {
+    fontSize: 12,
+    color: '#86868B',
+    marginTop: 4,
+  },
   placeholderText: {
     color: '#86868B',
   },
@@ -173,6 +178,22 @@ export default StyleSheet.create({
     paddingVertical: 12,
     fontSize: 16,
     color: '#1D1D1F',
+  },
+  premiumDisplay: {
+    backgroundColor: '#F5F5F7',
+    borderWidth: 1,
+    borderColor: '#E5E5EA',
+    borderRadius: 16,
+    paddingHorizontal: 16,
+    paddingLeft: 32,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: '#1D1D1F',
+  },
+  hintText: {
+    fontSize: 12,
+    color: '#86868B',
+    marginTop: 8,
   },
 
   // 数量输入

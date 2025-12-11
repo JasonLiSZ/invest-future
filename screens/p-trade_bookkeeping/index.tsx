@@ -39,10 +39,12 @@ interface ContractGroupData {
 const TradeBookkeepingScreen: React.FC = () => {
   const router = useRouter();
   const TRADE_STORAGE_KEY = 'tradeBookkeepingData';
+  const FOLLOW_LIST_KEY = 'followList';
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isDeleteModalVisible, setIsDeleteModalVisible] = useState(false);
   const [currentDeleteTradeId, setCurrentDeleteTradeId] = useState<string | null>(null);
   const [contractGroups, setContractGroups] = useState<ContractGroupData[]>([]);
+  const [currentPremiums, setCurrentPremiums] = useState<Record<string, number>>({});
 
   const handleBackPress = useCallback(() => {
     if (router.canGoBack()) {
@@ -70,13 +72,19 @@ const TradeBookkeepingScreen: React.FC = () => {
   const handleConfirmDelete = useCallback(() => {
     if (currentDeleteTradeId) {
       setContractGroups(prevGroups => {
-        const recomputeStats = (records: TradeRecord[]): Pick<ContractGroupData, 'averagePrice' | 'quantity' | 'currentValue' | 'pnl' | 'pnlPercent'> => {
+        const recomputeStats = (records: TradeRecord[], groupId: string): Pick<ContractGroupData, 'averagePrice' | 'quantity' | 'currentValue' | 'pnl' | 'pnlPercent'> => {
           const buyRecords = records.filter(r => r.type === 'buy');
           const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
           const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
           const netQty = records.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
           const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
-          const currentValue = netQty * avg;
+          
+          // 使用最新的期权费计算当前价值
+          const currentContractPremium = currentPremiums[groupId];
+          const currentValue = currentContractPremium !== undefined 
+            ? netQty * currentContractPremium 
+            : netQty * avg;
+            
           return { averagePrice: avg, quantity: netQty, currentValue, pnl: 0, pnlPercent: 0 };
         };
 
@@ -87,7 +95,7 @@ const TradeBookkeepingScreen: React.FC = () => {
           }))
           .map(group => ({
             ...group,
-            ...(group.tradeRecords.length > 0 ? recomputeStats(group.tradeRecords) : group),
+            ...(group.tradeRecords.length > 0 ? recomputeStats(group.tradeRecords, group.id) : group),
           }))
           .filter(group => group.tradeRecords.length > 0);
 
@@ -102,7 +110,7 @@ const TradeBookkeepingScreen: React.FC = () => {
       setCurrentDeleteTradeId(null);
       Alert.alert('删除成功', '交易记录已删除');
     }
-  }, [currentDeleteTradeId]);
+  }, [currentDeleteTradeId, currentPremiums]);
 
   const handleCancelDelete = useCallback(() => {
     setIsDeleteModalVisible(false);
@@ -112,9 +120,48 @@ const TradeBookkeepingScreen: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
+      // 重新加载最新的期权费
+      const followStored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+      const latestPremiums: Record<string, number> = {};
+      
+      if (followStored) {
+        const followList = JSON.parse(followStored);
+        followList.forEach((stock: any) => {
+          stock.contracts?.forEach((contract: any) => {
+            const contractId = contract.id;
+            const premium = parseFloat(contract.premium) || 0;
+            latestPremiums[contractId] = premium;
+          });
+        });
+      }
+      
+      setCurrentPremiums(latestPremiums);
+      
       const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
       const groups: ContractGroupData[] = stored ? JSON.parse(stored) : [];
-      setContractGroups(groups);
+      
+      // 使用最新的期权费重新计算 currentValue
+      const updatedGroups = groups.map(group => {
+        const currentContractPremium = latestPremiums[group.id];
+        if (currentContractPremium !== undefined) {
+          const buyRecords = group.tradeRecords.filter(r => r.type === 'buy');
+          const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
+          const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+          const netQty = group.tradeRecords.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
+          const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
+          const currentValue = netQty * currentContractPremium;
+          
+          return {
+            ...group,
+            averagePrice: avg,
+            quantity: netQty,
+            currentValue,
+          };
+        }
+        return group;
+      });
+      
+      setContractGroups(updatedGroups);
     } catch (e) {
       console.error('刷新交易簿记失败', e);
       Alert.alert('刷新失败', '无法加载数据');
@@ -123,13 +170,54 @@ const TradeBookkeepingScreen: React.FC = () => {
     }
   }, []);
 
+
+
   useFocusEffect(
     useCallback(() => {
       const loadData = async () => {
         try {
+          // 加载最新的期权费
+          const followStored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+          const latestPremiums: Record<string, number> = {};
+          
+          if (followStored) {
+            const followList = JSON.parse(followStored);
+            followList.forEach((stock: any) => {
+              stock.contracts?.forEach((contract: any) => {
+                const contractId = contract.id;
+                const premium = parseFloat(contract.premium) || 0;
+                latestPremiums[contractId] = premium;
+              });
+            });
+          }
+          
+          setCurrentPremiums(latestPremiums);
+          
           const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
           const groups: ContractGroupData[] = stored ? JSON.parse(stored) : [];
-          setContractGroups(groups);
+          
+          // 使用最新的期权费重新计算 currentValue
+          const updatedGroups = groups.map(group => {
+            const currentContractPremium = latestPremiums[group.id];
+            if (currentContractPremium !== undefined) {
+              const buyRecords = group.tradeRecords.filter(r => r.type === 'buy');
+              const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
+              const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+              const netQty = group.tradeRecords.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
+              const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
+              const currentValue = netQty * currentContractPremium;
+              
+              return {
+                ...group,
+                averagePrice: avg,
+                quantity: netQty,
+                currentValue,
+              };
+            }
+            return group;
+          });
+          
+          setContractGroups(updatedGroups);
         } catch (e) {
           console.error('加载交易簿记失败', e);
         }

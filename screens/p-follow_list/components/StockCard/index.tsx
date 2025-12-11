@@ -11,6 +11,7 @@ interface OptionContract {
   strikePrice: string;
   expirationDate: string;
   type: 'call' | 'put';
+  premium?: string;
 }
 
 interface StockData {
@@ -153,6 +154,9 @@ const StockCard: React.FC<StockCardProps> = ({
                 <View style={styles.contractDetails}>
                   <Text style={styles.contractDetailText}>行权价: {contract.strikePrice}</Text>
                   <Text style={styles.contractDetailText}>到期日: {contract.expirationDate}</Text>
+                  {contract.premium && (
+                    <Text style={styles.contractDetailText}>期权费: ${contract.premium}</Text>
+                  )}
                 </View>
               </View>
               <View style={styles.contractActions}>

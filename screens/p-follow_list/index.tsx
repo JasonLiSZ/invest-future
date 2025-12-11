@@ -57,7 +57,6 @@ const defaultStockList: StockData[] = [
         symbol: 'AAPL 12/15/23 180.00 CALL',
         strikePrice: '$180.00',
         expirationDate: '2023-12-15',
-        premium: '$3.45',
         type: 'call',
       },
       {
@@ -65,7 +64,6 @@ const defaultStockList: StockData[] = [
         symbol: 'AAPL 12/15/23 170.00 PUT',
         strikePrice: '$170.00',
         expirationDate: '2023-12-15',
-        premium: '$2.18',
         type: 'put',
       },
     ],
@@ -95,7 +93,6 @@ const defaultStockList: StockData[] = [
         symbol: 'TSLA 01/19/24 250.00 CALL',
         strikePrice: '$250.00',
         expirationDate: '2024-01-19',
-        premium: '$12.34',
         type: 'call',
       },
     ],

@@ -8,6 +8,7 @@ import { FontAwesome6 } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import StockCard from './components/StockCard';
+import { fetchStockDetails, fetchStockPrice } from '../../services/stockApi';
 import styles from './styles';
 
 interface OptionContract {
@@ -220,20 +221,40 @@ const FollowListScreen = () => {
   }, [router, stockList]);
 
   const handleRefreshStock = useCallback((stockId: string) => {
-    // 模拟刷新单只股票数据
+    // 刷新单只股票数据
     updateStockList(prevList =>
       prevList.map(stock =>
         stock.id === stockId ? { ...stock, isRefreshing: true } : stock
       )
     );
     
-    setTimeout(() => {
-      updateStockList(prevList =>
-        prevList.map(stock =>
-          stock.id === stockId ? { ...stock, isRefreshing: false } : stock
-        )
-      );
-    }, 1000);
+    // 并行获取实时价格和详情数据，使用 Promise.allSettled 让两个请求独立处理
+    Promise.allSettled([
+      fetchStockPrice(stockId.toUpperCase()),
+      fetchStockDetails(stockId.toUpperCase())
+    ])
+      .then(([priceResult, detailsResult]) => {
+        const priceData = priceResult.status === 'fulfilled' ? priceResult.value : null;
+        const detailsData = detailsResult.status === 'fulfilled' ? detailsResult.value : null;
+        
+        updateStockList(prevList =>
+          prevList.map(stock =>
+            stock.id === stockId 
+              ? { 
+                  ...stock, 
+                  isRefreshing: false,
+                  // 更新当前价格信息
+                  currentPrice: priceData?.currentPrice || stock.currentPrice,
+                  change: priceData?.change || stock.change,
+                  changePercent: priceData?.changePercent || stock.changePercent,
+                  isUp: priceData?.isUp !== undefined ? priceData.isUp : stock.isUp,
+                  // 更新详情数据
+                  details: detailsData || stock.details
+                } 
+              : stock
+          )
+        );
+      });
   }, [updateStockList]);
 
   const renderStockCard = useCallback(({ item }: { item: StockData }) => (

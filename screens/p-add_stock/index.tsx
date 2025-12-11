@@ -16,6 +16,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { FontAwesome6 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { fetchStockPrice } from '../../services/stockApi';
 import styles from './styles';
 
 interface StockItem {
@@ -153,14 +154,17 @@ const AddStockScreen: React.FC = () => {
         return;
       }
 
+      // 获取实时价格信息
+      const priceData = await fetchStockPrice(symbol);
+
       const newStock = {
         id: symbol.toLowerCase(),
         symbol,
         name,
-        currentPrice: '--',
-        change: '0.00',
-        changePercent: '0.00%',
-        isUp: true,
+        currentPrice: priceData?.currentPrice || '--',
+        change: priceData?.change || '0.00',
+        changePercent: priceData?.changePercent || '0.00%',
+        isUp: priceData?.isUp !== undefined ? priceData.isUp : true,
         contracts: [],
         details: {
           fiveDayAvg: '--',

@@ -178,9 +178,6 @@ const AddEditTradeScreen = () => {
 
   // 初始化页面
   useEffect(() => {
-    const today = new Date().toISOString().split('T')[0];
-    setTradeDate(today);
-
     const loadContractFromStorage = async (targetId: string) => {
       try {
         const stored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
@@ -215,7 +212,6 @@ const AddEditTradeScreen = () => {
           setSelectedContract(contract);
         }
         setTradeDirection(tradeData.direction);
-        setTradeDate(tradeData.date);
         setPremium(tradeData.premium.toString());
         setQuantity(tradeData.quantity.toString());
       }
@@ -243,7 +239,7 @@ const AddEditTradeScreen = () => {
         });
       }
     }
-  }, [params]);
+  }, [isEditMode, isClosePosition, contractId, params.trade_id]);
 
   // 过滤合约
   const filteredContracts = mockContracts.filter(contract =>

@@ -125,7 +125,7 @@ const TradeBookkeepingScreen: React.FC = () => {
             }
           }
           const netQty = position;
-          const avg = netQty !== 0 ? cashFlow / netQty : 0;
+          const avg = netQty !== 0 ? (netQty > 0 ? -cashFlow / netQty : cashFlow / netQty) : 0;
           
           // 使用最新的期权费计算当前价值
           const currentContractPremium = currentPremiums[groupId];
@@ -210,7 +210,7 @@ const TradeBookkeepingScreen: React.FC = () => {
             }
           }
           const netQty = position;
-          const avg = netQty !== 0 ? cashFlow / netQty : 0;
+          const avg = netQty !== 0 ? (netQty > 0 ? -cashFlow / netQty : cashFlow / netQty) : 0;
           const effectivePremium = currentContractPremium;
           const absQty = Math.abs(netQty);
           const currentValue = absQty * effectivePremium;
@@ -282,7 +282,7 @@ const TradeBookkeepingScreen: React.FC = () => {
                 }
               }
               const netQty = position;
-              const avg = netQty !== 0 ? cashFlow / netQty : 0;
+              const avg = netQty !== 0 ? (netQty > 0 ? -cashFlow / netQty : cashFlow / netQty) : 0;
               const effectivePremium = currentContractPremium;
               const absQty = Math.abs(netQty);
               const currentValue = absQty * effectivePremium;

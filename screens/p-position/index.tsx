@@ -86,7 +86,7 @@ const PositionScreen = () => {
           }
         }
         const netQty = position;
-        const avg = netQty !== 0 ? cashFlow / netQty : 0;
+        const avg = netQty !== 0 ? (netQty > 0 ? -cashFlow / netQty : cashFlow / netQty) : 0;
         const currentPremium = latestPremiums[group.id] ?? avg;
         const absQty = Math.abs(netQty);
         const currentValue = absQty * currentPremium;

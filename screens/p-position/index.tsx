@@ -94,6 +94,18 @@ const PositionScreen = () => {
         const pnl = netQty === 0 ? 0 : (netQty > 0 ? currentValue - costBasis : costBasis - currentValue);
         const pnlPercent = costBasis !== 0 ? (pnl / Math.abs(costBasis)) * 100 : 0;
 
+        // 计算剩余天数
+        const expirationDate = new Date(group.expiration);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        expirationDate.setHours(0, 0, 0, 0);
+        const daysRemaining = Math.max(0, Math.ceil((expirationDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24)));
+
+        // 计算持有天数（从第一笔交易到现在）
+        const firstTradeDate = new Date(sortedRecords[0]?.date || today);
+        firstTradeDate.setHours(0, 0, 0, 0);
+        const daysHeld = Math.ceil((today.getTime() - firstTradeDate.getTime()) / (1000 * 60 * 60 * 24));
+
         return {
           id: group.id,
           symbol: group.symbol,
@@ -107,8 +119,8 @@ const PositionScreen = () => {
           quantity: netQty,
           currentValue,
           expirationDate: group.expiration,
-          daysRemaining: 0,
-          daysHeld: 0,
+          daysRemaining,
+          daysHeld,
           profitLoss: pnl,
           profitLossPercent: pnlPercent,
         } as PositionData;

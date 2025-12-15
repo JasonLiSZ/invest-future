@@ -37,7 +37,7 @@ export default StyleSheet.create({
     gap: 8,
   },
   contractTitle: {
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: '600',
     color: '#1D1D1F',
     flex: 1,
@@ -48,7 +48,7 @@ export default StyleSheet.create({
     borderRadius: 4,
   },
   typeTagText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#FFFFFF',
     fontWeight: '500',
   },
@@ -60,11 +60,11 @@ export default StyleSheet.create({
     flex: 1,
   },
   statLabel: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#86868B',
   },
   statValue: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#1D1D1F',
     fontWeight: '500',
     marginLeft: 4,
@@ -74,11 +74,11 @@ export default StyleSheet.create({
     marginLeft: 16,
   },
   pnlValue: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: 'bold',
   },
   pnlPercent: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#86868B',
   },
   expandButton: {

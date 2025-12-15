@@ -73,19 +73,65 @@ const TradeBookkeepingScreen: React.FC = () => {
     if (currentDeleteTradeId) {
       setContractGroups(prevGroups => {
         const recomputeStats = (records: TradeRecord[], groupId: string): Pick<ContractGroupData, 'averagePrice' | 'quantity' | 'currentValue' | 'pnl' | 'pnlPercent'> => {
-          const buyRecords = records.filter(r => r.type === 'buy');
-          const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
-          const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+          // 计算未平仓部分的平均价格（支持先买后卖、先卖后买）
+          const sortedRecords = [...records].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          
+          let position = 0;  // 当前持仓数量（正数=多头，负数=空头）
+          let totalCost = 0; // 当前持仓的总成本
+          
+          for (const record of sortedRecords) {
+            const tradeQty = record.type === 'buy' ? record.quantity : -record.quantity;
+            const tradeCost = record.premium * record.quantity;
+            
+            // 判断是开仓还是平仓
+            if (position === 0) {
+              // 当前无持仓，此交易为开仓
+              position = tradeQty;
+              totalCost = record.type === 'buy' ? tradeCost : -tradeCost;
+            } else if ((position > 0 && tradeQty > 0) || (position < 0 && tradeQty < 0)) {
+              // 同方向交易，加仓
+              totalCost += tradeQty > 0 ? tradeCost : -tradeCost;
+              position += tradeQty;
+            } else {
+              // 反方向交易，平仓
+              const absTradeQty = Math.abs(tradeQty);
+              const absPosition = Math.abs(position);
+              
+              if (absTradeQty >= absPosition) {
+                // 完全平仓或反向开仓
+                const remainingQty = absTradeQty - absPosition;
+                position = position > 0 ? -remainingQty : remainingQty;
+                totalCost = position !== 0 ? (position > 0 ? tradeCost * remainingQty / absTradeQty : -tradeCost * remainingQty / absTradeQty) : 0;
+              } else {
+                // 部分平仓
+                const closeRatio = absTradeQty / absPosition;
+                totalCost -= totalCost * closeRatio;
+                position += tradeQty;
+              }
+            }
+          }
+          
           const netQty = records.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
-          const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
+          const avg = position !== 0
+            ? (position > 0 ? totalCost / position : -Math.abs(totalCost / position))
+            : 0;
           
           // 使用最新的期权费计算当前价值
           const currentContractPremium = currentPremiums[groupId];
-          const currentValue = currentContractPremium !== undefined 
-            ? netQty * currentContractPremium 
-            : netQty * avg;
+          const effectivePremium = currentContractPremium !== undefined ? currentContractPremium : avg;
+          const currentValue = netQty * effectivePremium;
+
+          // 基于持仓方向计算盈亏和盈亏率
+          const absQty = Math.abs(netQty);
+          const pnl = absQty === 0
+            ? 0
+            : netQty > 0
+              ? (effectivePremium - avg) * netQty
+              : (Math.abs(avg) - effectivePremium) * absQty;
+          const costBasis = netQty === 0 ? 0 : (netQty > 0 ? avg * netQty : Math.abs(avg) * absQty);
+          const pnlPercent = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
             
-          return { averagePrice: avg, quantity: netQty, currentValue, pnl: 0, pnlPercent: 0 };
+          return { averagePrice: avg, quantity: netQty, currentValue, pnl, pnlPercent };
         };
 
         const updated = prevGroups
@@ -144,18 +190,67 @@ const TradeBookkeepingScreen: React.FC = () => {
       const updatedGroups = groups.map(group => {
         const currentContractPremium = latestPremiums[group.id];
         if (currentContractPremium !== undefined) {
-          const buyRecords = group.tradeRecords.filter(r => r.type === 'buy');
-          const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
-          const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+          // 计算未平仓部分的平均价格（支持先买后卖、先卖后买）
+          const sortedRecords = [...group.tradeRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          
+          let position = 0;  // 当前持仓数量（正数=多头，负数=空头）
+          let totalCost = 0; // 当前持仓的总成本
+          
+          for (const record of sortedRecords) {
+            const tradeQty = record.type === 'buy' ? record.quantity : -record.quantity;
+            const tradeCost = record.premium * record.quantity;
+            
+            // 判断是开仓还是平仓
+            if (position === 0) {
+              // 当前无持仓，此交易为开仓
+              position = tradeQty;
+              totalCost = record.type === 'buy' ? tradeCost : -tradeCost;
+            } else if ((position > 0 && tradeQty > 0) || (position < 0 && tradeQty < 0)) {
+              // 同方向交易，加仓
+              totalCost += tradeQty > 0 ? tradeCost : -tradeCost;
+              position += tradeQty;
+            } else {
+              // 反方向交易，平仓
+              const absTradeQty = Math.abs(tradeQty);
+              const absPosition = Math.abs(position);
+              
+              if (absTradeQty >= absPosition) {
+                // 完全平仓或反向开仓
+                const remainingQty = absTradeQty - absPosition;
+                position = position > 0 ? -remainingQty : remainingQty;
+                totalCost = position !== 0 ? (position > 0 ? tradeCost * remainingQty / absTradeQty : -tradeCost * remainingQty / absTradeQty) : 0;
+              } else {
+                // 部分平仓
+                const closeRatio = absTradeQty / absPosition;
+                totalCost -= totalCost * closeRatio;
+                position += tradeQty;
+              }
+            }
+          }
+          
           const netQty = group.tradeRecords.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
-          const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
-          const currentValue = netQty * currentContractPremium;
+          const avg = position !== 0
+            ? (position > 0 ? totalCost / position : -Math.abs(totalCost / position))
+            : 0;
+          const effectivePremium = currentContractPremium !== undefined ? currentContractPremium : avg;
+          const currentValue = netQty * effectivePremium;
+
+          const absQty = Math.abs(netQty);
+          const pnl = absQty === 0
+            ? 0
+            : netQty > 0
+              ? (effectivePremium - avg) * netQty
+              : (Math.abs(avg) - effectivePremium) * absQty;
+          const costBasis = netQty === 0 ? 0 : (netQty > 0 ? avg * netQty : Math.abs(avg) * absQty);
+          const pnlPercent = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
           
           return {
             ...group,
             averagePrice: avg,
             quantity: netQty,
             currentValue,
+            pnl,
+            pnlPercent,
           };
         }
         return group;
@@ -200,18 +295,67 @@ const TradeBookkeepingScreen: React.FC = () => {
           const updatedGroups = groups.map(group => {
             const currentContractPremium = latestPremiums[group.id];
             if (currentContractPremium !== undefined) {
-              const buyRecords = group.tradeRecords.filter(r => r.type === 'buy');
-              const totalBuyQty = buyRecords.reduce((sum, r) => sum + r.quantity, 0);
-              const totalBuyCost = buyRecords.reduce((sum, r) => sum + r.premium * r.quantity, 0);
+              // 计算未平仓部分的平均价格（支持先买后卖、先卖后买）
+              const sortedRecords = [...group.tradeRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              
+              let position = 0;  // 当前持仓数量（正数=多头，负数=空头）
+              let totalCost = 0; // 当前持仓的总成本
+              
+              for (const record of sortedRecords) {
+                const tradeQty = record.type === 'buy' ? record.quantity : -record.quantity;
+                const tradeCost = record.premium * record.quantity;
+                
+                // 判断是开仓还是平仓
+                if (position === 0) {
+                  // 当前无持仓，此交易为开仓
+                  position = tradeQty;
+                  totalCost = record.type === 'buy' ? tradeCost : -tradeCost;
+                } else if ((position > 0 && tradeQty > 0) || (position < 0 && tradeQty < 0)) {
+                  // 同方向交易，加仓
+                  totalCost += tradeQty > 0 ? tradeCost : -tradeCost;
+                  position += tradeQty;
+                } else {
+                  // 反方向交易，平仓
+                  const absTradeQty = Math.abs(tradeQty);
+                  const absPosition = Math.abs(position);
+                  
+                  if (absTradeQty >= absPosition) {
+                    // 完全平仓或反向开仓
+                    const remainingQty = absTradeQty - absPosition;
+                    position = position > 0 ? -remainingQty : remainingQty;
+                    totalCost = position !== 0 ? (position > 0 ? tradeCost * remainingQty / absTradeQty : -tradeCost * remainingQty / absTradeQty) : 0;
+                  } else {
+                    // 部分平仓
+                    const closeRatio = absTradeQty / absPosition;
+                    totalCost -= totalCost * closeRatio;
+                    position += tradeQty;
+                  }
+                }
+              }
+              
               const netQty = group.tradeRecords.reduce((sum, r) => sum + (r.type === 'buy' ? r.quantity : -r.quantity), 0);
-              const avg = totalBuyQty > 0 ? totalBuyCost / totalBuyQty : 0;
-              const currentValue = netQty * currentContractPremium;
+              const avg = position !== 0
+                ? (position > 0 ? totalCost / position : -Math.abs(totalCost / position))
+                : 0;
+              const effectivePremium = currentContractPremium !== undefined ? currentContractPremium : avg;
+              const currentValue = netQty * effectivePremium;
+
+              const absQty = Math.abs(netQty);
+              const pnl = absQty === 0
+                ? 0
+                : netQty > 0
+                  ? (effectivePremium - avg) * netQty
+                  : (Math.abs(avg) - effectivePremium) * absQty;
+              const costBasis = netQty === 0 ? 0 : (netQty > 0 ? avg * netQty : Math.abs(avg) * absQty);
+              const pnlPercent = costBasis !== 0 ? (pnl / costBasis) * 100 : 0;
               
               return {
                 ...group,
                 averagePrice: avg,
                 quantity: netQty,
                 currentValue,
+                pnl,
+                pnlPercent,
               };
             }
             return group;

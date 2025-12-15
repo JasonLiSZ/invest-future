@@ -251,6 +251,8 @@ const AddEditTradeScreen = () => {
               setSelectedContract(contract);
               setTradeDate(trade.date);
               setQuantity(trade.quantity.toString());
+              // 加载交易时的实际成交价格（关键修改：使用trade.premium而不是contract.premium）
+              setPremium(trade.premium.toString());
               
               if (isClosePosition) {
                 // 平仓时反向操作
@@ -291,11 +293,10 @@ const AddEditTradeScreen = () => {
 
   // 计算总金额
   const calculateTotal = () => {
-    // 使用合约中的期权费，而不是用户输入的premium
-    const contractPremium = selectedContract?.premium || 0;
-    const premiumValue = typeof contractPremium === 'string' ? parseFloat(contractPremium) : contractPremium;
+    // 使用用户输入或选中的期权费（交易时的实际成交价格），而不是合约当前价格
+    const tradePremium = premium ? parseFloat(premium) : 0;
     const quantityValue = parseInt(quantity) || 0;
-    return (premiumValue * quantityValue).toFixed(2);
+    return (tradePremium * quantityValue).toFixed(2);
   };
 
   // 处理返回
@@ -310,6 +311,8 @@ const AddEditTradeScreen = () => {
   // 处理合约选择
   const handleContractSelect = (contract: OptionContract) => {
     setSelectedContract(contract);
+    // 仅当用户未输入期权费时，使用合约当前价格作为默认值
+    // 这是建议值，用户可以自由修改为实际成交价
     if (!premium) {
       setPremium(contract.premium.toString());
     }
@@ -343,9 +346,10 @@ const AddEditTradeScreen = () => {
       return false;
     }
     
-    const contractPremium = selectedContract?.premium;
-    if (!contractPremium) {
-      showError('选中的合约没有期权费信息');
+    // 验证交易时的实际成交价格（用户输入的premium）
+    const tradePremium = parseFloat(premium);
+    if (!premium || isNaN(tradePremium) || tradePremium <= 0) {
+      showError('请输入有效的期权费（成交价格）');
       return false;
     }
     
@@ -367,9 +371,8 @@ const AddEditTradeScreen = () => {
     setIsLoading(true);
 
     try {
-      // 使用合约中的期权费，而不是用户输入的值
-      const contractPremium = selectedContract?.premium || 0;
-      const premiumValue = typeof contractPremium === 'number' ? contractPremium : parseFloat(contractPremium);
+      // 使用用户输入的期权费（交易时的实际成交价格），而不是合约当前价格
+      const tradePremium = parseFloat(premium);
       const quantityValue = parseInt(quantity);
 
       const tradeData: TradeData = {
@@ -377,7 +380,7 @@ const AddEditTradeScreen = () => {
         contract_symbol: selectedContract!.symbol,
         direction: tradeDirection,
         date: tradeDate,
-        premium: premiumValue,
+        premium: tradePremium,
         quantity: quantityValue,
         is_close_position: isClosePosition,
       };
@@ -391,19 +394,35 @@ const AddEditTradeScreen = () => {
         for (let i = 0; i < groups.length; i++) {
           const recordIndex = groups[i].tradeRecords.findIndex(r => r.id === tradeId);
           if (recordIndex >= 0) {
-            // 更新该交易记录
+            // 更新该交易记录，保存用户输入的成交价格
             groups[i].tradeRecords[recordIndex] = {
               ...groups[i].tradeRecords[recordIndex],
               date: tradeDate,
               type: tradeDirection === 'BUY' ? 'buy' : 'sell',
-              premium: premiumValue,
+              premium: tradePremium,
               quantity: quantityValue,
-              totalValue: parseFloat((premiumValue * quantityValue).toFixed(2)),
+              totalValue: parseFloat((tradePremium * quantityValue).toFixed(2)),
               isClosing: isClosePosition,
             };
 
-            // 重新计算该合约组的统计数据，使用当前的合约期权费
-            const stats = computeGroupStats(groups[i].tradeRecords, premiumValue);
+            // 重新计算该合约组的统计数据，使用合约当前价格来计算当前价值
+            // 注意：这里应该从followList中获取合约的最新价格，而不是交易的价格
+            let currentContractPremium: number | undefined;
+            try {
+              const followList = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+              if (followList) {
+                const stocks: StockData[] = JSON.parse(followList);
+                const stock = stocks.find(s => s.contracts?.some(c => c.id === groups[i].id));
+                const contract = stock?.contracts.find(c => c.id === groups[i].id);
+                if (contract && contract.premium) {
+                  currentContractPremium = parseFloat(contract.premium);
+                }
+              }
+            } catch (e) {
+              console.error('获取合约当前价格失败', e);
+            }
+            
+            const stats = computeGroupStats(groups[i].tradeRecords, currentContractPremium);
             groups[i] = {
               ...groups[i],
               ...stats,
@@ -425,9 +444,9 @@ const AddEditTradeScreen = () => {
           id: generateTradeId(),
           date: tradeDate,
           type: tradeDirection === 'BUY' ? 'buy' : 'sell',
-          premium: premiumValue,
+          premium: tradePremium,
           quantity: quantityValue,
-          totalValue: parseFloat((premiumValue * quantityValue).toFixed(2)),
+          totalValue: parseFloat((tradePremium * quantityValue).toFixed(2)),
           isClosing: isClosePosition,
         };
 
@@ -435,7 +454,22 @@ const AddEditTradeScreen = () => {
 
         if (groupIndex >= 0) {
           const updatedRecords = [newRecord, ...groups[groupIndex].tradeRecords];
-          const stats = computeGroupStats(updatedRecords, premiumValue);
+          // 获取合约的最新价格来计算当前价值
+          let currentContractPremium: number | undefined;
+          try {
+            const followList = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+            if (followList) {
+              const stocks: StockData[] = JSON.parse(followList);
+              const stock = stocks.find(s => s.contracts?.some(c => c.id === selectedContract!.id));
+              const contract = stock?.contracts.find(c => c.id === selectedContract!.id);
+              if (contract && contract.premium) {
+                currentContractPremium = parseFloat(contract.premium);
+              }
+            }
+          } catch (e) {
+            console.error('获取合约当前价格失败', e);
+          }
+          const stats = computeGroupStats(updatedRecords, currentContractPremium);
           groups[groupIndex] = {
             ...groups[groupIndex],
             ...stats,
@@ -443,7 +477,22 @@ const AddEditTradeScreen = () => {
           };
         } else {
           const records = [newRecord];
-          const stats = computeGroupStats(records, premiumValue);
+          // 获取合约的最新价格来计算当前价值
+          let currentContractPremium: number | undefined;
+          try {
+            const followList = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+            if (followList) {
+              const stocks: StockData[] = JSON.parse(followList);
+              const stock = stocks.find(s => s.contracts?.some(c => c.id === selectedContract!.id));
+              const contract = stock?.contracts.find(c => c.id === selectedContract!.id);
+              if (contract && contract.premium) {
+                currentContractPremium = parseFloat(contract.premium);
+              }
+            }
+          } catch (e) {
+            console.error('获取合约当前价格失败', e);
+          }
+          const stats = computeGroupStats(records, currentContractPremium);
           groups.unshift({
             id: selectedContract!.id,
             symbol: selectedContract!.symbol,
@@ -647,16 +696,23 @@ const AddEditTradeScreen = () => {
           </View>
         </View>
 
-        {/* 期权费 - 从合约自动获取 */}
+        {/* 期权费 - 用户输入或编辑（交易时的实际成交价格） */}
         <View style={styles.formSection}>
-          <Text style={styles.formLabel}>期权费</Text>
+          <Text style={styles.formLabel}>期权费（成交价格）*</Text>
           <View style={styles.premiumInputWrapper}>
             <Text style={styles.currencySymbol}>$</Text>
-            <Text style={styles.premiumDisplay}>
-              {selectedContract?.premium ? parseFloat(String(selectedContract.premium)).toFixed(2) : '--'}
-            </Text>
+            <TextInput
+              style={styles.premiumInput}
+              value={premium}
+              onChangeText={setPremium}
+              keyboardType="decimal-pad"
+              placeholder="输入期权成交价格"
+              placeholderTextColor="#86868B"
+            />
           </View>
-          <Text style={styles.hintText}>期权费从合约配置中自动获取</Text>
+          <Text style={styles.hintText}>
+            {selectedContract?.premium ? `当前合约价格: $${parseFloat(String(selectedContract.premium)).toFixed(2)}` : '请先选择合约'}
+          </Text>
         </View>
 
         {/* 数量 */}

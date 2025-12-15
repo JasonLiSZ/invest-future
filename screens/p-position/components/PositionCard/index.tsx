@@ -33,6 +33,10 @@ interface PositionCardProps {
 const PositionCard: React.FC<PositionCardProps> = ({ position }) => {
   const isPositive = (value: number) => value >= 0;
   const formatCurrency = (value: number) => `$${value.toFixed(2)}`;
+  const formatSignedCurrency = (value: number) => {
+    const sign = value >= 0 ? '+' : '';
+    return `${sign}$${value.toFixed(2)}`;
+  };
   const formatPercent = (value: number) => `${value.toFixed(2)}%`;
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -44,7 +48,10 @@ const PositionCard: React.FC<PositionCardProps> = ({ position }) => {
       <View style={styles.gridRow}>
         <View style={styles.gridItem}>
           <Text style={styles.gridLabel}>平均价格</Text>
-          <Text style={styles.gridValue}>{formatCurrency(position.averagePrice)}</Text>
+          <Text style={[
+            styles.gridValue,
+            position.averagePrice < 0 ? styles.negativeValue : null
+          ]}>{formatSignedCurrency(position.averagePrice)}</Text>
         </View>
         <View style={styles.gridItem}>
           <Text style={styles.gridLabel}>未平仓数量</Text>
@@ -97,7 +104,10 @@ const PositionCard: React.FC<PositionCardProps> = ({ position }) => {
       <View style={styles.gridRow}>
         <View style={styles.gridItem}>
           <Text style={styles.gridLabel}>平均价格</Text>
-          <Text style={styles.gridValue}>{formatCurrency(position.averagePrice)}</Text>
+          <Text style={[
+            styles.gridValue,
+            position.averagePrice < 0 ? styles.negativeValue : null
+          ]}>{formatSignedCurrency(position.averagePrice)}</Text>
         </View>
         <View style={styles.gridItem}>
           <Text style={styles.gridLabel}>平仓价格</Text>

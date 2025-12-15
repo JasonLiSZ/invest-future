@@ -49,7 +49,7 @@ const TradeRecord: React.FC<TradeRecordProps> = ({
         </TouchableOpacity>
         {!data.isClosing && (
           <TouchableOpacity style={styles.closeButton} onPress={onClosePosition}>
-            <FontAwesome6 name="xmark" size={12} color="#FFFFFF" />
+            <FontAwesome6 name="arrow-right-from-bracket" size={12} color="#FFFFFF" />
           </TouchableOpacity>
         )}
         <TouchableOpacity style={styles.deleteButton} onPress={onDelete}>

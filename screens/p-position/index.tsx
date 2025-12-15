@@ -1,10 +1,11 @@
 
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, TouchableOpacity, ScrollView, RefreshControl, Alert, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { FontAwesome6 } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import styles from './styles';
 import PositionCard from './components/PositionCard';
 
@@ -32,111 +33,13 @@ interface PositionData {
 
 const PositionScreen = () => {
   const router = useRouter();
+  const TRADE_STORAGE_KEY = 'tradeBookkeepingData';
+  const FOLLOW_LIST_KEY = 'followList';
   const [activeTab, setActiveTab] = useState<'open' | 'closed'>('open');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // 模拟持仓数据
-  const [openPositions] = useState<PositionData[]>([
-    {
-      id: '1',
-      symbol: 'AAPL',
-      contract: 'AAPL 12/15/23 180.00 CALL',
-      company: '苹果公司',
-      type: 'call',
-      currentPrice: 175.43,
-      priceChange: 2.34,
-      priceChangePercent: 1.35,
-      averagePrice: 3.45,
-      quantity: 5,
-      currentValue: 1754.30,
-      expirationDate: '2023-12-15',
-      daysRemaining: 23,
-      daysHeld: 12,
-      profitLoss: 125.50,
-      profitLossPercent: 7.25,
-    },
-    {
-      id: '2',
-      symbol: 'TSLA',
-      contract: 'TSLA 01/19/24 250.00 CALL',
-      company: '特斯拉',
-      type: 'call',
-      currentPrice: 248.87,
-      priceChange: -5.67,
-      priceChangePercent: -2.23,
-      averagePrice: 12.34,
-      quantity: 3,
-      currentValue: 746.61,
-      expirationDate: '2024-01-19',
-      daysRemaining: 48,
-      daysHeld: 5,
-      profitLoss: -35.70,
-      profitLossPercent: -9.65,
-    },
-    {
-      id: '3',
-      symbol: 'AAPL',
-      contract: 'AAPL 12/15/23 170.00 PUT',
-      company: '苹果公司',
-      type: 'put',
-      currentPrice: 175.43,
-      priceChange: 2.34,
-      priceChangePercent: 1.35,
-      averagePrice: 2.18,
-      quantity: 2,
-      currentValue: 430.86,
-      expirationDate: '2023-12-15',
-      daysRemaining: 23,
-      daysHeld: 8,
-      profitLoss: -45.20,
-      profitLossPercent: -10.35,
-    },
-  ]);
-
-  const [closedPositions] = useState<PositionData[]>([
-    {
-      id: '4',
-      symbol: 'MSFT',
-      contract: 'MSFT 11/17/23 370.00 CALL',
-      company: '微软公司',
-      type: 'call',
-      currentPrice: 0,
-      priceChange: 0,
-      priceChangePercent: 0,
-      averagePrice: 8.25,
-      quantity: 4,
-      currentValue: 0,
-      expirationDate: '2023-11-17',
-      daysRemaining: 0,
-      daysHeld: 15,
-      profitLoss: 168.00,
-      profitLossPercent: 50.91,
-      isClosed: true,
-      closeDate: '2023-11-15',
-      closePrice: 12.45,
-    },
-    {
-      id: '5',
-      symbol: 'GOOGL',
-      contract: 'GOOGL 11/10/23 140.00 PUT',
-      company: '谷歌',
-      type: 'put',
-      currentPrice: 0,
-      priceChange: 0,
-      priceChangePercent: 0,
-      averagePrice: 4.12,
-      quantity: 6,
-      currentValue: 0,
-      expirationDate: '2023-11-10',
-      daysRemaining: 0,
-      daysHeld: 7,
-      profitLoss: -136.20,
-      profitLossPercent: -55.10,
-      isClosed: true,
-      closeDate: '2023-11-08',
-      closePrice: 1.85,
-    },
-  ]);
+  const [openPositions, setOpenPositions] = useState<PositionData[]>([]);
+  const [closedPositions, setClosedPositions] = useState<PositionData[]>([]);
 
   const handleBackPress = useCallback(() => {
     if (router.canGoBack()) {
@@ -151,15 +54,80 @@ const PositionScreen = () => {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // 模拟刷新数据
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      console.log('持仓数据已刷新');
+      // 加载最新的期权费
+      const followStored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+      const latestPremiums: Record<string, number> = {};
+      if (followStored) {
+        const followList = JSON.parse(followStored);
+        followList.forEach((stock: any) => {
+          stock.contracts?.forEach((contract: any) => {
+            const contractId = contract.id;
+            const premium = parseFloat(contract.premium) || 0;
+            latestPremiums[contractId] = premium;
+          });
+        });
+      }
+
+      const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
+      const groups: any[] = stored ? JSON.parse(stored) : [];
+
+      // 现金流口径计算每个合约的持仓与盈亏
+      const mapToPosition = (group: any): PositionData => {
+        const sortedRecords = [...group.tradeRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        let position = 0;
+        let cashFlow = 0;
+        for (const r of sortedRecords) {
+          if (r.type === 'buy') {
+            position += r.quantity;
+            cashFlow -= r.premium * r.quantity;
+          } else {
+            position -= r.quantity;
+            cashFlow += r.premium * r.quantity;
+          }
+        }
+        const netQty = position;
+        const avg = netQty !== 0 ? cashFlow / netQty : 0;
+        const currentPremium = latestPremiums[group.id] ?? avg;
+        const absQty = Math.abs(netQty);
+        const currentValue = absQty * currentPremium;
+        const costBasis = avg * netQty;
+        const pnl = netQty === 0 ? 0 : (netQty > 0 ? currentValue - costBasis : costBasis - currentValue);
+        const pnlPercent = costBasis !== 0 ? (pnl / Math.abs(costBasis)) * 100 : 0;
+
+        return {
+          id: group.id,
+          symbol: group.symbol,
+          contract: `${group.symbol} ${group.expiration} ${group.strike.toFixed(2)} ${group.type.toUpperCase()}`,
+          company: group.symbol,
+          type: group.type,
+          currentPrice: currentPremium,
+          priceChange: 0,
+          priceChangePercent: 0,
+          averagePrice: avg,
+          quantity: netQty,
+          currentValue,
+          expirationDate: group.expiration,
+          daysRemaining: 0,
+          daysHeld: 0,
+          profitLoss: pnl,
+          profitLossPercent: pnlPercent,
+        } as PositionData;
+      };
+
+      const positions = groups.map(mapToPosition);
+      setOpenPositions(positions.filter(p => p.quantity !== 0));
+      setClosedPositions(positions.filter(p => p.quantity === 0).map(p => ({ ...p, isClosed: true })));
     } catch (error) {
       console.error('刷新失败:', error);
     } finally {
       setIsRefreshing(false);
     }
   }, []);
+
+  useEffect(() => {
+    // 首次加载同步数据
+    handleRefresh();
+  }, [handleRefresh]);
 
   const handleStartTrading = useCallback(() => {
     router.push('/p-trade_bookkeeping');

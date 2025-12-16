@@ -38,14 +38,6 @@ export default function Layout() {
             )
         }}/>
 
-        <Tabs.Screen name="p-position" options={{
-            title: '持仓', 
-            headerShown: false,
-            tabBarIcon: ({ color }) => (
-                <FontAwesome6 name="briefcase" size={20} color={color} />
-            )
-        }}/>
-
         <Tabs.Screen name="p-analyze" options={{
             title: '分析', 
             headerShown: false,

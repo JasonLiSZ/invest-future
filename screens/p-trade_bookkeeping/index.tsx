@@ -133,10 +133,24 @@ const TradeBookkeepingScreen: React.FC = () => {
           const absQty = Math.abs(netQty);
           const currentValue = absQty * effectivePremium;
 
-          // 基于持仓方向计算盈亏和盈亏率
-          const costBasis = avg * netQty;
-          const pnl = netQty === 0 ? 0 : (netQty > 0 ? currentValue - costBasis : costBasis - currentValue);
-          const pnlPercent = costBasis !== 0 ? (pnl / Math.abs(costBasis)) * 100 : 0;
+          // 计算盈亏和盈亏率
+          let pnl: number;
+          let pnlPercent: number;
+          
+          if (netQty === 0) {
+            // 已平仓：盈亏就是净现金流
+            pnl = cashFlow;
+            // 计算盈亏率：需要找到总成本基础
+            const totalCost = sortedRecords.reduce((sum, r) => {
+              return sum + (r.type === 'buy' ? r.premium * r.quantity : 0);
+            }, 0);
+            pnlPercent = totalCost !== 0 ? (pnl / totalCost) * 100 : 0;
+          } else {
+            // 未平仓：按持仓方向计算盈亏
+            const costBasis = avg * netQty;
+            pnl = netQty > 0 ? currentValue - costBasis : costBasis - currentValue;
+            pnlPercent = costBasis !== 0 ? (pnl / Math.abs(costBasis)) * 100 : 0;
+          }
             
           return { averagePrice: avg, quantity: netQty, currentValue, pnl, pnlPercent };
         };

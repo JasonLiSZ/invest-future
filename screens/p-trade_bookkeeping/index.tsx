@@ -473,7 +473,7 @@ const TradeBookkeepingScreen: React.FC = () => {
         <TouchableOpacity style={styles.backButton} onPress={handleBackPress}>
           <FontAwesome6 name="chevron-left" size={16} color="#1D1D1F" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>交易簿记</Text>
+        <Text style={styles.headerTitle}>交易</Text>
         <TouchableOpacity style={styles.addButton} onPress={handleAddTradePress}>
           <FontAwesome6 name="plus" size={14} color="#FFFFFF" style={styles.addButtonIcon} />
           <Text style={styles.addButtonText}>新增交易</Text>

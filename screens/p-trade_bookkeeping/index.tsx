@@ -10,6 +10,7 @@ import { FontAwesome6 } from '@expo/vector-icons';
 import styles from './styles';
 import ContractGroup from './components/ContractGroup';
 import DeleteModal from './components/DeleteModal';
+import DateFilter, { DateRangeType } from './components/DateFilter';
 
 interface TradeRecord {
   id: string;
@@ -45,6 +46,63 @@ const TradeBookkeepingScreen: React.FC = () => {
   const [currentDeleteTradeId, setCurrentDeleteTradeId] = useState<string | null>(null);
   const [contractGroups, setContractGroups] = useState<ContractGroupData[]>([]);
   const [currentPremiums, setCurrentPremiums] = useState<Record<string, number>>({});
+  const [dateRange, setDateRange] = useState<DateRangeType>('last_1_month');
+  const [customDateRange, setCustomDateRange] = useState<{ startDate: Date | null; endDate: Date | null }>({
+    startDate: null,
+    endDate: null,
+  });
+
+  // 计算日期范围
+  const getDateRangeBounds = useCallback((): { start: Date; end: Date } => {
+    const now = new Date();
+    const start = new Date(now);
+    const end = new Date(now);
+    end.setHours(23, 59, 59, 999);
+
+    switch (dateRange) {
+      case 'this_month':
+        start.setDate(1);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'last_1_month':
+        start.setMonth(start.getMonth() - 1);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'last_3_months':
+        start.setMonth(start.getMonth() - 3);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'last_6_months':
+        start.setMonth(start.getMonth() - 6);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'this_year':
+        start.setMonth(0, 1);
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'custom':
+        if (customDateRange.startDate && customDateRange.endDate) {
+          return {
+            start: new Date(customDateRange.startDate.setHours(0, 0, 0, 0)),
+            end: new Date(customDateRange.endDate.setHours(23, 59, 59, 999)),
+          };
+        }
+        // 如果自定义日期无效，回退到全部
+        return { start: new Date(0), end };
+      case 'all':
+      default:
+        return { start: new Date(0), end };
+    }
+
+    return { start, end };
+  }, [dateRange, customDateRange]);
+
+  const handleDateRangeChange = useCallback((range: DateRangeType, customRange?: { startDate: Date | null; endDate: Date | null }) => {
+    setDateRange(range);
+    if (customRange) {
+      setCustomDateRange(customRange);
+    }
+  }, []);
 
   const aggregateStats = useMemo(() => {
     const totals = contractGroups.reduce(
@@ -187,6 +245,9 @@ const TradeBookkeepingScreen: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
+      // 获取日期范围
+      const { start, end } = getDateRangeBounds();
+      
       // 重新加载最新的期权费
       const followStored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
       const latestPremiums: Record<string, number> = {};
@@ -207,11 +268,22 @@ const TradeBookkeepingScreen: React.FC = () => {
       const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
       const groups: ContractGroupData[] = stored ? JSON.parse(stored) : [];
       
-      // 使用最新的期权费重新计算 currentValue（现金流口径平均价）
+      // 使用最新的期权费重新计算 currentValue，并根据日期范围筛选交易记录
       const updatedGroups = groups.map(group => {
+        // 筛选日期范围内的交易记录
+        const filteredRecords = group.tradeRecords.filter(record => {
+          const recordDate = new Date(record.date);
+          return recordDate >= start && recordDate <= end;
+        });
+        
+        // 如果筛选后没有交易记录，跳过此合约组
+        if (filteredRecords.length === 0) {
+          return null;
+        }
+        
         const currentContractPremium = latestPremiums[group.id];
         if (currentContractPremium !== undefined) {
-          const sortedRecords = [...group.tradeRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+          const sortedRecords = [...filteredRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
           let position = 0;
           let cashFlow = 0;
           for (const r of sortedRecords) {
@@ -228,12 +300,29 @@ const TradeBookkeepingScreen: React.FC = () => {
           const effectivePremium = currentContractPremium;
           const absQty = Math.abs(netQty);
           const currentValue = absQty * effectivePremium;
-          const costBasis = avg * netQty;
-          const pnl = netQty === 0 ? 0 : (netQty > 0 ? currentValue - costBasis : costBasis - currentValue);
-          const pnlPercent = costBasis !== 0 ? (pnl / Math.abs(costBasis)) * 100 : 0;
+          
+          // 计算盈亏和盈亏率
+          let pnl: number;
+          let pnlPercent: number;
+          
+          if (netQty === 0) {
+            // 已平仓：盈亏就是净现金流
+            pnl = cashFlow;
+            // 计算盈亏率：需要找到总成本基础
+            const totalCost = sortedRecords.reduce((sum, r) => {
+              return sum + (r.type === 'buy' ? r.premium * r.quantity : 0);
+            }, 0);
+            pnlPercent = totalCost !== 0 ? (pnl / totalCost) * 100 : 0;
+          } else {
+            // 未平仓：按持仓方向计算盈亏
+            const costBasis = avg * netQty;
+            pnl = netQty > 0 ? currentValue - costBasis : costBasis - currentValue;
+            pnlPercent = costBasis !== 0 ? (pnl / Math.abs(costBasis)) * 100 : 0;
+          }
           
           return {
             ...group,
+            tradeRecords: filteredRecords,
             averagePrice: avg,
             quantity: netQty,
             currentValue,
@@ -241,8 +330,11 @@ const TradeBookkeepingScreen: React.FC = () => {
             pnlPercent,
           };
         }
-        return group;
-      });
+        return {
+          ...group,
+          tradeRecords: filteredRecords,
+        };
+      }).filter((group): group is ContractGroupData => group !== null);
       
       setContractGroups(updatedGroups);
     } catch (e) {
@@ -251,7 +343,7 @@ const TradeBookkeepingScreen: React.FC = () => {
     } finally {
       setIsRefreshing(false);
     }
-  }, []);
+  }, [getDateRangeBounds]);
 
 
 
@@ -259,6 +351,9 @@ const TradeBookkeepingScreen: React.FC = () => {
     useCallback(() => {
       const loadData = async () => {
         try {
+          // 获取日期范围
+          const { start, end } = getDateRangeBounds();
+          
           // 加载最新的期权费
           const followStored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
           const latestPremiums: Record<string, number> = {};
@@ -279,11 +374,22 @@ const TradeBookkeepingScreen: React.FC = () => {
           const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
           const groups: ContractGroupData[] = stored ? JSON.parse(stored) : [];
           
-          // 使用最新的期权费重新计算 currentValue
+          // 使用最新的期权费重新计算 currentValue，并根据日期范围筛选交易记录
           const updatedGroups = groups.map(group => {
+            // 筛选日期范围内的交易记录
+            const filteredRecords = group.tradeRecords.filter(record => {
+              const recordDate = new Date(record.date);
+              return recordDate >= start && recordDate <= end;
+            });
+            
+            // 如果筛选后没有交易记录，跳过此合约组
+            if (filteredRecords.length === 0) {
+              return null;
+            }
+            
             const currentContractPremium = latestPremiums[group.id];
             if (currentContractPremium !== undefined) {
-              const sortedRecords = [...group.tradeRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+              const sortedRecords = [...filteredRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
               let position = 0;
               let cashFlow = 0;
               for (const r of sortedRecords) {
@@ -322,6 +428,7 @@ const TradeBookkeepingScreen: React.FC = () => {
               
               return {
                 ...group,
+                tradeRecords: filteredRecords,
                 averagePrice: avg,
                 quantity: netQty,
                 currentValue,
@@ -329,8 +436,11 @@ const TradeBookkeepingScreen: React.FC = () => {
                 pnlPercent,
               };
             }
-            return group;
-          });
+            return {
+              ...group,
+              tradeRecords: filteredRecords,
+            };
+          }).filter((group): group is ContractGroupData => group !== null);
           
           setContractGroups(updatedGroups);
         } catch (e) {
@@ -339,7 +449,7 @@ const TradeBookkeepingScreen: React.FC = () => {
       };
 
       loadData();
-    }, [])
+    }, [dateRange, customDateRange, getDateRangeBounds])
   );
 
   const renderEmptyState = () => (
@@ -369,6 +479,13 @@ const TradeBookkeepingScreen: React.FC = () => {
           <Text style={styles.addButtonText}>新增交易</Text>
         </TouchableOpacity>
       </View>
+
+      {/* 日期筛选器 */}
+      <DateFilter
+        selectedRange={dateRange}
+        customRange={customDateRange}
+        onRangeChange={handleDateRangeChange}
+      />
 
       {/* 主要内容区域 */}
       <ScrollView

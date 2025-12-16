@@ -42,36 +42,42 @@ export default StyleSheet.create({
     paddingVertical: 16,
     paddingBottom: 80,
   },
-  tabContainer: {
+  statsContainer: {
     flexDirection: 'row',
-    backgroundColor: '#F2F2F7',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
-    padding: 4,
+    padding: 16,
     marginBottom: 24,
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.06,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+    }),
   },
-  tabButton: {
+  statItem: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 8,
     alignItems: 'center',
-    justifyContent: 'center',
   },
-  tabActive: {
-    backgroundColor: '#007AFF',
+  statDivider: {
+    width: 1,
+    backgroundColor: '#E5E5EA',
+    marginHorizontal: 16,
   },
-  tabInactive: {
-    backgroundColor: 'transparent',
-  },
-  tabText: {
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  tabTextActive: {
-    color: '#FFFFFF',
-  },
-  tabTextInactive: {
+  statLabel: {
+    fontSize: 13,
     color: '#86868B',
+    marginBottom: 4,
+  },
+  statValue: {
+    fontSize: 24,
+    fontWeight: '600',
+    color: '#1D1D1F',
   },
   positionList: {
     gap: 16,

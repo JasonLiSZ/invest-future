@@ -24,6 +24,12 @@ interface PositionData {
   isClosed?: boolean;
   closeDate?: string;
   closePrice?: number;
+  // Greeks 和隐含波动率
+  impliedVolatility?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
 }
 
 interface PositionCardProps {
@@ -96,6 +102,48 @@ const PositionCard: React.FC<PositionCardProps> = ({ position }) => {
           {isPositive(position.profitLossPercent) ? '+' : ''}{formatPercent(position.profitLossPercent)}
         </Text>
       </View>
+
+      {/* Greeks 和隐含波动率 */}
+      {(position.impliedVolatility !== undefined || position.delta !== undefined) && (
+        <>
+          <View style={styles.sectionDivider} />
+          <View style={styles.greeksSection}>
+            <Text style={styles.greeksSectionTitle}>Greeks & IV</Text>
+            <View style={styles.greeksGrid}>
+              {position.impliedVolatility !== undefined && (
+                <View style={styles.greekItem}>
+                  <Text style={styles.greekLabel}>IV</Text>
+                  <Text style={styles.greekValue}>{(position.impliedVolatility * 100).toFixed(1)}%</Text>
+                </View>
+              )}
+              {position.delta !== undefined && (
+                <View style={styles.greekItem}>
+                  <Text style={styles.greekLabel}>Delta</Text>
+                  <Text style={styles.greekValue}>{position.delta.toFixed(3)}</Text>
+                </View>
+              )}
+              {position.gamma !== undefined && (
+                <View style={styles.greekItem}>
+                  <Text style={styles.greekLabel}>Gamma</Text>
+                  <Text style={styles.greekValue}>{position.gamma.toFixed(4)}</Text>
+                </View>
+              )}
+              {position.theta !== undefined && (
+                <View style={styles.greekItem}>
+                  <Text style={styles.greekLabel}>Theta</Text>
+                  <Text style={styles.greekValue}>{position.theta.toFixed(3)}</Text>
+                </View>
+              )}
+              {position.vega !== undefined && (
+                <View style={styles.greekItem}>
+                  <Text style={styles.greekLabel}>Vega</Text>
+                  <Text style={styles.greekValue}>{position.vega.toFixed(3)}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </>
+      )}
     </>
   );
 
@@ -147,7 +195,15 @@ const PositionCard: React.FC<PositionCardProps> = ({ position }) => {
   );
 
   return (
-    <View style={styles.container}>
+    <View style={[
+      styles.container,
+      position.isClosed && styles.closedContainer
+    ]}>
+      {position.isClosed && (
+        <View style={styles.closedBadge}>
+          <Text style={styles.closedBadgeText}>已平仓</Text>
+        </View>
+      )}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <View style={styles.contractInfo}>

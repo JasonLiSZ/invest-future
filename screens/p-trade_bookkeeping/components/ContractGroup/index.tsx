@@ -63,7 +63,7 @@ const ContractGroup: React.FC<ContractGroupProps> = ({
   };
 
   const getPnlColor = () => {
-    return data.pnl >= 0 ? '#34C759' : '#FF3B30';
+    return data.pnl >= 0 ? '#FF3B30' : '#34C759';
   };
 
   const formatCurrency = (amount: number) => {
@@ -106,7 +106,7 @@ const ContractGroup: React.FC<ContractGroupProps> = ({
             <Text style={[styles.pnlValue, { color: getPnlColor() }]}>
               {data.pnl >= 0 ? '+' : ''}{formatCurrency(data.pnl)}
             </Text>
-            <Text style={styles.pnlPercent}>{formatPercent(data.pnlPercent)}</Text>
+            <Text style={[styles.pnlPercent, { color: getPnlColor() }]}>{formatPercent(data.pnlPercent)}</Text>
           </View>
           <View style={styles.expandButton}>
             <FontAwesome6

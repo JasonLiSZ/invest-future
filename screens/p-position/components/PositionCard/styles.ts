@@ -19,6 +19,25 @@ export default StyleSheet.create({
       },
     }),
   },
+  closedContainer: {
+    opacity: 0.7,
+    backgroundColor: '#F9F9F9',
+  },
+  closedBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: '#86868B',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    zIndex: 1,
+  },
+  closedBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#FFFFFF',
+  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -143,10 +162,47 @@ export default StyleSheet.create({
     fontWeight: 'bold',
   },
   positiveValue: {
-    color: '#34C759',
+    color: '#FF3B30',
   },
   negativeValue: {
-    color: '#FF3B30',
+    color: '#34C759',
+  },
+  sectionDivider: {
+    height: 1,
+    backgroundColor: '#E5E5EA',
+    marginVertical: 16,
+  },
+  greeksSection: {
+    marginTop: 4,
+  },
+  greeksSectionTitle: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1D1D1F',
+    marginBottom: 12,
+  },
+  greeksGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  greekItem: {
+    backgroundColor: '#F2F2F7',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    minWidth: '18%',
+    alignItems: 'center',
+  },
+  greekLabel: {
+    fontSize: 11,
+    color: '#86868B',
+    marginBottom: 2,
+  },
+  greekValue: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#1D1D1F',
   },
 });
 

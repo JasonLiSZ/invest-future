@@ -1,13 +1,15 @@
 
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { View, Text, TouchableOpacity, ScrollView, RefreshControl, Alert, } from 'react-native';
+import { View, Text, TouchableOpacity, ScrollView, RefreshControl, Alert, ActivityIndicator, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { FontAwesome6 } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import styles from './styles';
 import PositionCard from './components/PositionCard';
+
 
 interface PositionData {
   id: string;
@@ -29,27 +31,27 @@ interface PositionData {
   isClosed?: boolean;
   closeDate?: string;
   closePrice?: number;
+  // Greeks 和隐含波动率
+  impliedVolatility?: number;
+  delta?: number;
+  gamma?: number;
+  theta?: number;
+  vega?: number;
 }
 
 const PositionScreen = () => {
   const router = useRouter();
   const TRADE_STORAGE_KEY = 'tradeBookkeepingData';
   const FOLLOW_LIST_KEY = 'followList';
-  const [activeTab, setActiveTab] = useState<'open' | 'closed'>('open');
   const [isRefreshing, setIsRefreshing] = useState(false);
 
-  const [openPositions, setOpenPositions] = useState<PositionData[]>([]);
-  const [closedPositions, setClosedPositions] = useState<PositionData[]>([]);
+  const [allPositions, setAllPositions] = useState<PositionData[]>([]);
 
   const handleBackPress = useCallback(() => {
     if (router.canGoBack()) {
       router.back();
     }
   }, [router]);
-
-  const handleTabPress = useCallback((tab: 'open' | 'closed') => {
-    setActiveTab(tab);
-  }, []);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -72,7 +74,7 @@ const PositionScreen = () => {
       const groups: any[] = stored ? JSON.parse(stored) : [];
 
       // 现金流口径计算每个合约的持仓与盈亏
-      const mapToPosition = (group: any): PositionData => {
+      const mapToPosition = async (group: any): Promise<PositionData> => {
         const sortedRecords = [...group.tradeRecords].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
         let position = 0;
         let cashFlow = 0;
@@ -106,6 +108,10 @@ const PositionScreen = () => {
         firstTradeDate.setHours(0, 0, 0, 0);
         const daysHeld = Math.ceil((today.getTime() - firstTradeDate.getTime()) / (1000 * 60 * 60 * 24));
 
+        // Greeks 数据需要 Polygon.io 付费版订阅，免费版不支持
+        // 保留接口定义以便将来升级
+        let greeksData = {};
+
         return {
           id: group.id,
           symbol: group.symbol,
@@ -123,30 +129,49 @@ const PositionScreen = () => {
           daysHeld,
           profitLoss: pnl,
           profitLossPercent: pnlPercent,
+          ...greeksData,
         } as PositionData;
       };
 
-      const positions = groups.map(mapToPosition);
-      setOpenPositions(positions.filter(p => p.quantity !== 0));
-      setClosedPositions(positions.filter(p => p.quantity === 0).map(p => ({ ...p, isClosed: true })));
+      // 批量处理所有持仓
+      const positions: PositionData[] = [];
+      for (let i = 0; i < groups.length; i++) {
+        const position = await mapToPosition(groups[i]);
+        positions.push(position);
+      }
+
+      // 合并所有持仓，标记已平仓的合约
+      const allPositionsList = positions.map(p => ({
+        ...p,
+        isClosed: p.quantity === 0
+      }));
+
+      // 按状态排序：未平仓在前，已平仓在后
+      allPositionsList.sort((a, b) => {
+        if (a.isClosed === b.isClosed) return 0;
+        return a.isClosed ? 1 : -1;
+      });
+
+      setAllPositions(allPositionsList);
     } catch (error) {
       console.error('刷新失败:', error);
+      Alert.alert('刷新失败', '无法加载持仓数据');
     } finally {
       setIsRefreshing(false);
     }
   }, []);
 
-  useEffect(() => {
-    // 首次加载同步数据
-    handleRefresh();
-  }, [handleRefresh]);
+  useFocusEffect(
+    useCallback(() => {
+      handleRefresh();
+    }, [])
+  );
 
   const handleStartTrading = useCallback(() => {
     router.push('/p-trade_bookkeeping');
   }, [router]);
 
-  const currentPositions = activeTab === 'open' ? openPositions : closedPositions;
-  const showEmptyState = openPositions.length === 0 && closedPositions.length === 0;
+  const showEmptyState = allPositions.length === 0;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -177,55 +202,14 @@ const PositionScreen = () => {
         showsVerticalScrollIndicator={false}
       >
         {!showEmptyState && (
-          <>
-            {/* 标签页 */}
-            <View style={styles.tabContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  activeTab === 'open' ? styles.tabActive : styles.tabInactive,
-                ]}
-                onPress={() => handleTabPress('open')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === 'open' ? styles.tabTextActive : styles.tabTextInactive,
-                  ]}
-                >
-                  未平仓
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  activeTab === 'closed' ? styles.tabActive : styles.tabInactive,
-                ]}
-                onPress={() => handleTabPress('closed')}
-                activeOpacity={0.8}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    activeTab === 'closed' ? styles.tabTextActive : styles.tabTextInactive,
-                  ]}
-                >
-                  已平仓
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {/* 持仓列表 */}
-            <View style={styles.positionList}>
-              {currentPositions.map((position) => (
-                <PositionCard
-                  key={position.id}
-                  position={position}
-                />
-              ))}
-            </View>
-          </>
+          <View style={styles.positionList}>
+            {allPositions.map((position) => (
+              <PositionCard
+                key={position.id}
+                position={position}
+              />
+            ))}
+          </View>
         )}
 
         {/* 空状态 */}

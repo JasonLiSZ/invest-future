@@ -217,7 +217,7 @@ const FollowListScreen = () => {
     }
   }, [router, stockList]);
 
-  const handleRefreshStock = useCallback((stockId: string) => {
+  const handleRefreshStock = useCallback(async (stockId: string) => {
     // 刷新单只股票数据
     updateStockList(prevList =>
       prevList.map(stock =>
@@ -225,33 +225,42 @@ const FollowListScreen = () => {
       )
     );
     
-    // 并行获取实时价格和详情数据，使用 Promise.allSettled 让两个请求独立处理
-    Promise.allSettled([
-      fetchStockPrice(stockId.toUpperCase()),
-      fetchStockDetails(stockId.toUpperCase())
-    ])
-      .then(([priceResult, detailsResult]) => {
-        const priceData = priceResult.status === 'fulfilled' ? priceResult.value : null;
-        const detailsData = detailsResult.status === 'fulfilled' ? detailsResult.value : null;
-        
-        updateStockList(prevList =>
-          prevList.map(stock =>
-            stock.id === stockId 
-              ? { 
-                  ...stock, 
-                  isRefreshing: false,
-                  // 更新当前价格信息
-                  currentPrice: priceData?.currentPrice || stock.currentPrice,
-                  change: priceData?.change || stock.change,
-                  changePercent: priceData?.changePercent || stock.changePercent,
-                  isUp: priceData?.isUp !== undefined ? priceData.isUp : stock.isUp,
-                  // 更新详情数据
-                  details: detailsData || stock.details
-                } 
-              : stock
-          )
-        );
-      });
+    try {
+      // 串行获取数据，避免超过 Alpha Vantage 免费版速率限制（每秒1个请求）
+      // 1. 先获取实时价格
+      const priceData = await fetchStockPrice(stockId.toUpperCase());
+      
+      // 2. 等待1.2秒后再获取详情数据（留出余量避免速率限制）
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      
+      // 3. 获取详情数据
+      const detailsData = await fetchStockDetails(stockId.toUpperCase());
+      
+      updateStockList(prevList =>
+        prevList.map(stock =>
+          stock.id === stockId 
+            ? { 
+                ...stock, 
+                isRefreshing: false,
+                // 更新当前价格信息
+                currentPrice: priceData?.currentPrice || stock.currentPrice,
+                change: priceData?.change || stock.change,
+                changePercent: priceData?.changePercent || stock.changePercent,
+                isUp: priceData?.isUp !== undefined ? priceData.isUp : stock.isUp,
+                // 更新详情数据
+                details: detailsData || stock.details
+              } 
+            : stock
+        )
+      );
+    } catch (error) {
+      console.error(`刷新股票 ${stockId} 失败:`, error);
+      updateStockList(prevList =>
+        prevList.map(stock =>
+          stock.id === stockId ? { ...stock, isRefreshing: false } : stock
+        )
+      );
+    }
   }, [updateStockList]);
 
   const renderStockCard = useCallback(({ item }: { item: StockData }) => (

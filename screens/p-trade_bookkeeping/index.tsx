@@ -357,7 +357,7 @@ const TradeBookkeepingScreen: React.FC = () => {
                 <Text
                   style={[
                     styles.summaryPnlValue,
-                    { color: aggregateStats.totalPnl >= 0 ? '#34C759' : '#FF3B30' },
+                    { color: aggregateStats.totalPnl >= 0 ? '#FF3B30' : '#34C759' },
                   ]}
                 >
                   {formatSignedCurrency(aggregateStats.totalPnl)}
@@ -366,7 +366,10 @@ const TradeBookkeepingScreen: React.FC = () => {
               <View style={styles.summaryMetaRow}>
                 <View style={styles.summaryMetaItem}>
                   <Text style={styles.summaryLabel}>盈亏百分比</Text>
-                  <Text style={styles.summaryValue}>{formatSignedPercent(aggregateStats.totalPnlPercent)}</Text>
+                  <Text style={[
+                    styles.summaryValue,
+                    { color: aggregateStats.totalPnl >= 0 ? '#FF3B30' : '#34C759' }
+                  ]}>{formatSignedPercent(aggregateStats.totalPnlPercent)}</Text>
                 </View>
                 <View style={styles.summaryMetaItem}>
                   <Text style={styles.summaryLabel}>总当前价值</Text>

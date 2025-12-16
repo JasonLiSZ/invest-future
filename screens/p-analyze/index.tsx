@@ -1,10 +1,12 @@
 
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { View, Text, ScrollView, TouchableOpacity, RefreshControl, Alert, } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import { FontAwesome6 } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import Svg, { Defs, LinearGradient as SvgLinearGradient, Stop, G, Line, Path, Text as SvgText, Circle } from 'react-native-svg';
 import styles from './styles';
 import DateSelector from './components/DateSelector';
@@ -25,6 +27,8 @@ interface FilterOptions {
 
 const AnalyzeScreen: React.FC = () => {
   const router = useRouter();
+  const TRADE_STORAGE_KEY = 'tradeBookkeepingData';
+  const FOLLOW_LIST_KEY = 'followList';
   
   // 状态管理
   const [selectedDateRange, setSelectedDateRange] = useState<DateRangeType>('month');
@@ -32,6 +36,7 @@ const AnalyzeScreen: React.FC = () => {
   const [chartType, setChartType] = useState<ChartType>('line');
   const [isFilterExpanded, setIsFilterExpanded] = useState(false);
   const [isCustomDateModalVisible, setIsCustomDateModalVisible] = useState(false);
+  const [profitStats, setProfitStats] = useState({ totalPnl: 0, totalPnlPercent: 0 });
   const [customDateRange, setCustomDateRange] = useState({
     startDate: '',
     endDate: '',
@@ -51,9 +56,49 @@ const AnalyzeScreen: React.FC = () => {
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      // 模拟数据刷新
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      // 这里可以添加实际的数据获取逻辑
+      const followStored = await AsyncStorage.getItem(FOLLOW_LIST_KEY);
+      const latestPremiums: Record<string, number> = {};
+      if (followStored) {
+        const followList = JSON.parse(followStored);
+        followList.forEach((stock: any) => {
+          stock.contracts?.forEach((contract: any) => {
+            latestPremiums[contract.id] = parseFloat(contract.premium) || 0;
+          });
+        });
+      }
+
+      const stored = await AsyncStorage.getItem(TRADE_STORAGE_KEY);
+      const groups: any[] = stored ? JSON.parse(stored) : [];
+
+      let totalPnl = 0;
+      let totalCostBasis = 0;
+
+      groups.forEach(group => {
+        let position = 0;
+        let cashFlow = 0;
+        group.tradeRecords.forEach((r: any) => {
+          if (r.type === 'buy') {
+            position += r.quantity;
+            cashFlow -= r.premium * r.quantity;
+          } else {
+            position -= r.quantity;
+            cashFlow += r.premium * r.quantity;
+          }
+        });
+        const netQty = position;
+        const avg = netQty !== 0 ? (netQty > 0 ? -cashFlow / netQty : cashFlow / netQty) : 0;
+        const currentPremium = latestPremiums[group.id] ?? avg;
+        const absQty = Math.abs(netQty);
+        const currentValue = absQty * currentPremium;
+        const costBasis = avg * netQty;
+        const pnl = netQty === 0 ? 0 : (netQty > 0 ? currentValue - costBasis : costBasis - currentValue);
+        
+        totalPnl += pnl;
+        totalCostBasis += Math.abs(costBasis);
+      });
+
+      const totalPnlPercent = totalCostBasis !== 0 ? (totalPnl / totalCostBasis) * 100 : 0;
+      setProfitStats({ totalPnl, totalPnlPercent });
     } catch (error) {
       console.error('刷新失败:', error);
     } finally {
@@ -93,6 +138,12 @@ const AnalyzeScreen: React.FC = () => {
     }
     return '自定义';
   }, [customDateRange]);
+
+  useFocusEffect(
+    useCallback(() => {
+      handleRefresh();
+    }, [])
+  );
 
   return (
     <SafeAreaView style={styles.container}>
@@ -145,7 +196,7 @@ const AnalyzeScreen: React.FC = () => {
         />
 
         {/* 总盈亏概览 */}
-        <ProfitOverview />
+        <ProfitOverview totalPnl={profitStats.totalPnl} totalPnlPercent={profitStats.totalPnlPercent} />
 
         {/* 总盈亏趋势图 */}
         <TrendChart

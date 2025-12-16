@@ -42,12 +42,32 @@ export default StyleSheet.create({
     color: '#1D1D1F',
     flex: 1,
   },
+  tagsContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
   typeTag: {
     paddingHorizontal: 8,
-    paddingVertical: 2,
+    paddingVertical: 4,
     borderRadius: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   typeTagText: {
+    fontSize: 13,
+    color: '#FFFFFF',
+    fontWeight: '500',
+  },
+  closedTag: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
+    backgroundColor: '#86868B',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  closedTagText: {
     fontSize: 13,
     color: '#FFFFFF',
     fontWeight: '500',

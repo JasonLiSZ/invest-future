@@ -83,8 +83,15 @@ const ContractGroup: React.FC<ContractGroupProps> = ({
           <View style={styles.headerLeft}>
             <View style={styles.titleRow}>
               <Text style={styles.contractTitle}>{formatContractTitle()}</Text>
-              <View style={[styles.typeTag, { backgroundColor: getContractTypeColor() }]}>
-                <Text style={styles.typeTagText}>{getContractTypeText()}</Text>
+              <View style={styles.tagsContainer}>
+                <View style={[styles.typeTag, { backgroundColor: getContractTypeColor() }]}>
+                  <Text style={styles.typeTagText}>{getContractTypeText()}</Text>
+                </View>
+                {data.quantity === 0 && (
+                  <View style={styles.closedTag}>
+                    <Text style={styles.closedTagText}>已平仓</Text>
+                  </View>
+                )}
               </View>
             </View>
             <View style={styles.statsGrid}>
